@@ -27,7 +27,8 @@ object Routes {
 @Composable
 fun SlideShowApp() {
     val navController = rememberNavController()
-    val app = LocalContext.current.applicationContext as SlideShowApplication
+    val app = LocalContext.current.applicationContext as? SlideShowApplication
+        ?: error("Application must be SlideShowApplication (check AndroidManifest android:name)")
     val factory = remember { AppViewModelFactory(app) }
     val settings by app.settingsRepository.settings.collectAsState(initial = Settings())
 
@@ -37,8 +38,12 @@ fun SlideShowApp() {
             val vm: SelectionViewModel = viewModel(factory = factory)
             SelectionScreen(
                 viewModel = vm,
-                onStartSlideshow = { navController.navigate(Routes.SLIDESHOW) },
-                onOpenSettings = { navController.navigate(Routes.SETTINGS) }
+                onStartSlideshow = {
+                    navController.navigate(Routes.SLIDESHOW) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } }
             )
         }
         composable(Routes.SLIDESHOW) {

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
@@ -49,7 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.slideshow.R
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -69,9 +72,11 @@ fun SelectionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val activity = context as Activity
-    val isWide = calculateWindowSizeClass(activity).widthSizeClass == WindowWidthSizeClass.Expanded
-
+    val activity = context as? Activity
+    // Не падаем, если Activity недоступна в composition — в этом случае деградируем
+    // к телефонной раскладке (calculateWindowSizeClass требует Activity).
+    val windowSizeClass = activity?.let { calculateWindowSizeClass(it) }
+    val isWide = windowSizeClass?.widthSizeClass == WindowWidthSizeClass.Expanded
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
@@ -95,16 +100,16 @@ fun SelectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Слайд-шоу") },
+                title = { Text(stringResource(R.string.selection_title)) },
                 actions = {
                     IconButton(
                         onClick = viewModel::clearAll,
                         enabled = uiState.images.isNotEmpty()
                     ) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Удалить всё")
+                        Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.selection_delete_all))
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.selection_settings))
                     }
                 }
             )
@@ -136,7 +141,7 @@ fun SelectionScreen(
                 ) {
                     PickerButtonContent(
                         icon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(48.dp)) },
-                        label = "Галерея",
+                        label = stringResource(R.string.selection_gallery),
                         vertical = !isWide
                     )
                 }
@@ -149,7 +154,7 @@ fun SelectionScreen(
                 ) {
                     PickerButtonContent(
                         icon = { Icon(Icons.Filled.Usb, contentDescription = null, modifier = Modifier.size(48.dp)) },
-                        label = "Флэшка",
+                        label = stringResource(R.string.selection_usb),
                         vertical = !isWide
                     )
                 }
@@ -162,7 +167,7 @@ fun SelectionScreen(
             ) {
                 if (uiState.images.isEmpty()) {
                     Text(
-                        "Нет выбранных изображений",
+                        stringResource(R.string.selection_empty),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -210,7 +215,7 @@ fun SelectionScreen(
                     Icon(Icons.Filled.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Запустить слайд-шоу",
+                        text = stringResource(R.string.selection_start_slideshow),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -260,7 +265,7 @@ fun GridImage(uri: Uri, onRemove: () -> Unit) {
                 .align(Alignment.TopEnd)
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
         ) {
-            Text("✕")
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_delete))
         }
     }
 }
@@ -281,7 +286,7 @@ fun ImageRow(uri: Uri, onRemove: () -> Unit) {
         headlineContent = { Text(uri.lastPathSegment ?: uri.toString()) },
         trailingContent = {
             IconButton(onClick = onRemove) {
-                Text("✕")
+            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_delete))
             }
         }
     )

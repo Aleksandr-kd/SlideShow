@@ -25,13 +25,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +39,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,12 +49,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import coil.compose.AsyncImage
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import coil.compose.SubcomposeAsyncImage
+import com.example.slideshow.R
 import com.example.slideshow.model.TransitionMode
 import kotlinx.coroutines.delay
 
@@ -63,10 +68,12 @@ fun SlideshowScreen(
     onBack: () -> Unit
 ) {
     val view = LocalView.current
-    DisposableEffect(Unit) {
-        val activity = view.context as? Activity
+    val activity = view.context as? Activity
+    val controller = remember(activity) {
+        activity?.let { WindowCompat.getInsetsController(it.window, view) }
+    }
+    DisposableEffect(activity) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val controller = activity?.let { WindowCompat.getInsetsController(it.window, view) }
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
@@ -79,20 +86,25 @@ fun SlideshowScreen(
     val current = state.current
 
     var controlsVisible by remember { mutableStateOf(true) }
+    // Инкрементируется при каждом взаимодействии, чтобы перезапускать таймер скрытия контролов.
+    var controlsInteraction by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(controlsVisible, state.playing) {
+    LaunchedEffect(controlsVisible, state.playing, controlsInteraction) {
         if (controlsVisible && state.playing) {
             delay(4000)
             controlsVisible = false
         }
     }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onRestart() }
+
     if (current == null) {
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Нет изображений", color = Color.White)
+                Text(stringResource(R.string.slideshow_no_images), color = Color.White)
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.slideshow_back), tint = Color.White)
                 }
             }
         }
@@ -104,7 +116,13 @@ fun SlideshowScreen(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(Unit) {
-                detectTapGestures { controlsVisible = !controlsVisible }
+                detectTapGestures {
+                    controlsVisible = !controlsVisible
+                    controlsInteraction++
+                    // Убираем конфликт с SystemUI: тап по экрану служит только для
+                    // переключения контролов, а системные бары тут же скрываем снова.
+                    controller?.hide(WindowInsetsCompat.Type.systemBars())
+                }
             }
     ) {
         val transitionDuration = state.speedMs.coerceAtMost(600).toInt()
@@ -134,11 +152,26 @@ fun SlideshowScreen(
             modifier = Modifier.fillMaxSize(),
             label = "slideshow_transition"
         ) { uri ->
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = uri,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("…", color = Color.White)
+                    }
+                },
+                error = {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.BrokenImage,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.padding(32.dp)
+                        )
+                    }
+                }
             )
         }
 
@@ -151,7 +184,11 @@ fun SlideshowScreen(
             Box(Modifier.fillMaxSize()) {
                 // Счётчик
                 Text(
-                    text = "${state.position + 1} / ${state.total}",
+                    text = stringResource(
+                        R.string.slideshow_counter,
+                        state.position + 1,
+                        state.total
+                    ),
                     color = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -165,7 +202,7 @@ fun SlideshowScreen(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.slideshow_back), tint = Color.White)
                 }
 
                 // Управление внизу
@@ -177,18 +214,20 @@ fun SlideshowScreen(
                 ) {
                     Surface(color = Color.Black.copy(alpha = 0.5f)) {
                         Row {
-                            IconButton(onClick = { viewModel.previous() }) {
-                                Icon(Icons.Filled.SkipPrevious, contentDescription = "Назад", tint = Color.White)
+                            IconButton(onClick = { viewModel.previous(); controlsInteraction++ }) {
+                                Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.slideshow_previous), tint = Color.White)
                             }
-                            IconButton(onClick = { viewModel.togglePlay() }) {
+                            IconButton(onClick = { viewModel.togglePlay(); controlsInteraction++ }) {
                                 Icon(
                                     if (state.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (state.playing) "Пауза" else "Воспроизвести",
+                                    contentDescription = stringResource(
+                                        if (state.playing) R.string.slideshow_pause else R.string.slideshow_play
+                                    ),
                                     tint = Color.White
                                 )
                             }
-                            IconButton(onClick = { viewModel.next() }) {
-                                Icon(Icons.Filled.SkipNext, contentDescription = "Вперёд", tint = Color.White)
+                            IconButton(onClick = { viewModel.next(); controlsInteraction++ }) {
+                                Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.slideshow_next), tint = Color.White)
                             }
                         }
                     }

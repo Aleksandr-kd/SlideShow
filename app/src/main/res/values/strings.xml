@@ -1,3 +1,41 @@
 <resources>
     <string name="app_name">Слайд-шоу</string>
+
+    <!-- Selection -->
+    <string name="selection_title">Слайд-шоу</string>
+    <string name="selection_delete_all">Удалить всё</string>
+    <string name="selection_settings">Настройки</string>
+    <string name="selection_gallery">Галерея</string>
+    <string name="selection_usb">Флэшка</string>
+    <string name="selection_empty">Нет выбранных изображений</string>
+    <string name="selection_start_slideshow">Запустить слайд-шоу</string>
+    <string name="action_delete">Удалить</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_back">Назад</string>
+    <string name="settings_speed">Скорость показа</string>
+    <string name="settings_speed_value">%1$d сек</string>
+    <string name="settings_play_order">Порядок показа</string>
+    <string name="settings_order_sequential">Последовательно</string>
+    <string name="settings_order_shuffle">Перемешивание</string>
+    <string name="settings_transitions">Переходы</string>
+    <string name="settings_transition_none">Без перехода</string>
+    <string name="settings_transition_crossfade">Плавно (кроссфейд)</string>
+    <string name="settings_transition_slide">Сдвиг вбок</string>
+    <string name="settings_transition_zoom">Масштаб (зум)</string>
+    <string name="settings_transition_flip">Вертикально (флип)</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_system">Системная</string>
+    <string name="settings_theme_light">Светлая</string>
+    <string name="settings_theme_dark">Тёмная</string>
+
+    <!-- Slideshow -->
+    <string name="slideshow_no_images">Нет изображений</string>
+    <string name="slideshow_back">Назад</string>
+    <string name="slideshow_pause">Пауза</string>
+    <string name="slideshow_play">Воспроизвести</string>
+    <string name="slideshow_previous">Предыдущий</string>
+    <string name="slideshow_next">Следующий</string>
+    <string name="slideshow_counter">%1$d / %2$d</string>
 </resources>

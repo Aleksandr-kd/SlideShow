@@ -22,12 +22,18 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.slideshow.R
 import com.example.slideshow.model.PlayOrder
 import com.example.slideshow.model.ThemeMode
 import com.example.slideshow.model.TransitionMode
+import kotlin.math.roundToInt
 
 private val speedOptions = listOf(
     1000L to "1 сек",
@@ -36,6 +42,10 @@ private val speedOptions = listOf(
     5000L to "5 сек",
     10000L to "10 сек"
 )
+
+// Индекс ближайшего пресета для произвольного сохранённого значения.
+private fun speedIndex(speedMs: Long): Int =
+    speedOptions.indices.minByOrNull { kotlin.math.abs(speedOptions[it].first - speedMs) } ?: 0
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,10 +58,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Настройки") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
                     }
                 }
             )
@@ -65,35 +75,52 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Section("Скорость показа") {
-                Text("${settings.speedMs / 1000} сек")
+            Section(stringResource(R.string.settings_speed)) {
+                // Локальное значение скользит живо, а в хранилище пишем только по
+                // окончанию жеста — раньше каждая позиция слайдера плевалась в DataStore.
+                var sliderIndex by remember(settings.speedMs) {
+                    mutableFloatStateOf(speedIndex(settings.speedMs).toFloat())
+                }
+                val selectedSpeed = speedOptions[sliderIndex.roundToInt().coerceIn(0, speedOptions.lastIndex)].first
+                Text(
+                    stringResource(
+                        R.string.settings_speed_value,
+                        // Округляем к ближайшей секунде, чтобы отображение совпадало
+                        // с реальными пресетами (1000/2000/3000/5000/10000 мс).
+                        (selectedSpeed / 1000.0).roundToInt()
+                    )
+                )
                 Slider(
-                    value = settings.speedMs.toFloat(),
-                    onValueChange = { viewModel.setSpeed(it.toLong()) },
-                    valueRange = 500f..15000f,
-                    steps = 8,
+                    value = sliderIndex,
+                    onValueChange = { sliderIndex = it },
+                    onValueChangeFinished = {
+                        val i = sliderIndex.roundToInt().coerceIn(0, speedOptions.lastIndex)
+                        viewModel.setSpeed(speedOptions[i].first)
+                    },
+                    valueRange = 0f..(speedOptions.lastIndex).toFloat(),
+                    steps = speedOptions.size - 2,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            Section("Порядок показа") {
-                RadioRow("Последовательно", settings.playOrder == PlayOrder.SEQUENTIAL) {
+            Section(stringResource(R.string.settings_play_order)) {
+                RadioRow(stringResource(R.string.settings_order_sequential), settings.playOrder == PlayOrder.SEQUENTIAL) {
                     viewModel.setPlayOrder(PlayOrder.SEQUENTIAL)
                 }
-                RadioRow("Перемешивание", settings.playOrder == PlayOrder.SHUFFLE) {
+                RadioRow(stringResource(R.string.settings_order_shuffle), settings.playOrder == PlayOrder.SHUFFLE) {
                     viewModel.setPlayOrder(PlayOrder.SHUFFLE)
                 }
             }
 
-            Section("Переходы") {
+            Section(stringResource(R.string.settings_transitions)) {
                 TransitionMode.entries.forEach { mode ->
                     RadioRow(
                         label = when (mode) {
-                            TransitionMode.NONE -> "Без перехода"
-                            TransitionMode.CROSSFADE -> "Плавно (кроссфейд)"
-                            TransitionMode.SLIDE -> "Сдвиг вбок"
-                            TransitionMode.ZOOM -> "Масштаб (зум)"
-                            TransitionMode.FLIP -> "Вертикально (флип)"
+                            TransitionMode.NONE -> stringResource(R.string.settings_transition_none)
+                            TransitionMode.CROSSFADE -> stringResource(R.string.settings_transition_crossfade)
+                            TransitionMode.SLIDE -> stringResource(R.string.settings_transition_slide)
+                            TransitionMode.ZOOM -> stringResource(R.string.settings_transition_zoom)
+                            TransitionMode.FLIP -> stringResource(R.string.settings_transition_flip)
                         },
                         selected = settings.transition == mode
                     ) {
@@ -102,13 +129,13 @@ fun SettingsScreen(
                 }
             }
 
-            Section("Тема") {
+            Section(stringResource(R.string.settings_theme)) {
                 ThemeMode.entries.forEach { mode ->
                     RadioRow(
                         label = when (mode) {
-                            ThemeMode.SYSTEM -> "Системная"
-                            ThemeMode.LIGHT -> "Светлая"
-                            ThemeMode.DARK -> "Тёмная"
+                            ThemeMode.SYSTEM -> stringResource(R.string.settings_theme_system)
+                            ThemeMode.LIGHT -> stringResource(R.string.settings_theme_light)
+                            ThemeMode.DARK -> stringResource(R.string.settings_theme_dark)
                         },
                         selected = settings.theme == mode
                     ) {
