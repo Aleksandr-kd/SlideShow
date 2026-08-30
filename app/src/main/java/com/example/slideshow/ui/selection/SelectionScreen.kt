@@ -11,10 +11,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -22,6 +27,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Usb
@@ -48,7 +54,10 @@ import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSiz
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontWeight
 import coil.compose.AsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3WindowSizeClassApi::class)
@@ -86,27 +95,21 @@ fun SelectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("SlideShow") },
+                title = { Text("Слайд-шоу") },
                 actions = {
+                    IconButton(
+                        onClick = viewModel::clearAll,
+                        enabled = uiState.images.isNotEmpty()
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Удалить всё")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Настройки")
                     }
                 }
             )
         },
-        bottomBar = {
-            Box(Modifier.fillMaxWidth().padding(16.dp)) {
-                Button(
-                    onClick = onStartSlideshow,
-                    enabled = uiState.images.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text("Запустить слайд-шоу")
-                }
-            }
-        }
-    ) { padding ->
+        ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -114,51 +117,126 @@ fun SelectionScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.33f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedButton(
                     onClick = {
                         photoPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(24.dp)
                 ) {
-                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
-                    Text("Галерея")
+                    PickerButtonContent(
+                        icon = { Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(48.dp)) },
+                        label = "Галерея",
+                        vertical = !isWide
+                    )
                 }
                 OutlinedButton(
                     onClick = { usbPicker.launch(null) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(24.dp)
                 ) {
-                    Icon(Icons.Filled.Usb, contentDescription = null)
-                    Text("Флэшка")
+                    PickerButtonContent(
+                        icon = { Icon(Icons.Filled.Usb, contentDescription = null, modifier = Modifier.size(48.dp)) },
+                        label = "Флэшка",
+                        vertical = !isWide
+                    )
                 }
             }
 
-            if (uiState.images.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Нет выбранных изображений", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (uiState.images.isEmpty()) {
+                    Text(
+                        "Нет выбранных изображений",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 108.dp)
+                    )
+                } else if (isWide) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(180.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(uiState.images, key = { it.toString() }) { uri ->
+                            GridImage(uri = uri, onRemove = { viewModel.removeImage(uri) })
+                        }
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(uiState.images, key = { it.toString() }) { uri ->
+                            ImageRow(
+                                uri = uri,
+                                onRemove = { viewModel.removeImage(uri) }
+                            )
+                        }
+                    }
                 }
-            } else if (isWide) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(180.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+
+                Button(
+                    onClick = onStartSlideshow,
+                    enabled = uiState.images.isNotEmpty(),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .sizeIn(minWidth = 280.dp, minHeight = 72.dp)
+                        .then(
+                            if (uiState.images.isNotEmpty()) {
+                                Modifier.shadow(
+                                    elevation = 10.dp,
+                                    shape = RoundedCornerShape(32.dp),
+                                    clip = false
+                                )
+                            } else Modifier
+                        ),
+                    shape = RoundedCornerShape(32.dp)
                 ) {
-                    items(uiState.images, key = { it.toString() }) { uri ->
-                        GridImage(uri = uri, onRemove = { viewModel.removeImage(uri) })
-                    }
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(uiState.images, key = { it.toString() }) { uri ->
-                        ImageRow(
-                            uri = uri,
-                            onRemove = { viewModel.removeImage(uri) }
-                        )
-                    }
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Запустить слайд-шоу",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun PickerButtonContent(
+    icon: @Composable () -> Unit,
+    label: String,
+    vertical: Boolean
+) {
+    if (vertical) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            icon()
+            Spacer(Modifier.height(8.dp))
+            Text(label, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            icon()
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
         }
     }
 }

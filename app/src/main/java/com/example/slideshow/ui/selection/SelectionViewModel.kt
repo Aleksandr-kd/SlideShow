@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.slideshow.data.ImageRepository
 import com.example.slideshow.model.Settings
 import com.example.slideshow.data.SettingsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,13 @@ class SelectionViewModel(
     private val _uiState = MutableStateFlow(SelectionUiState(images = imageRepository.getUris()))
     val uiState: StateFlow<SelectionUiState> = _uiState.asStateFlow()
 
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val valid = imageRepository.retainReadableUris()
+            _uiState.update { it.copy(images = valid) }
+        }
+    }
+
     fun addImages(uris: List<Uri>) {
         uris.forEach { imageRepository.addSource(it) }
         _uiState.update { it.copy(images = imageRepository.getUris()) }
@@ -32,5 +40,10 @@ class SelectionViewModel(
     fun removeImage(uri: Uri) {
         imageRepository.removeUri(uri)
         _uiState.update { it.copy(images = imageRepository.getUris()) }
+    }
+
+    fun clearAll() {
+        imageRepository.clear()
+        _uiState.update { it.copy(images = emptyList()) }
     }
 }

@@ -55,6 +55,21 @@ class ImageRepository(private val context: Context) {
 
     fun getUris(): List<Uri> = loadUris()
 
+    // Removes URIs whose access grant is gone (e.g. expired Photo Picker grants
+    // after a reinstall). Otherwise the list would keep dead "✕" tiles.
+    suspend fun retainReadableUris(): List<Uri> = withContext(Dispatchers.IO) {
+        val current = getUris()
+        val valid = current.filter { uri ->
+            try {
+                context.contentResolver.openInputStream(uri)?.close() != null
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (valid.size != current.size) saveUris(valid)
+        valid
+    }
+
     fun removeUri(uri: Uri) {
         saveUris(getUris().filterNot { it == uri })
     }

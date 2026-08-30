@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.slideshow.data.ImageRepository
 import com.example.slideshow.data.SettingsRepository
 import com.example.slideshow.model.PlayOrder
+import com.example.slideshow.model.TransitionMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,7 @@ data class SlideshowUiState(
     val position: Int = 0,
     val speedMs: Long = 3000L,
     val playOrder: PlayOrder = PlayOrder.SEQUENTIAL,
+    val transition: TransitionMode = TransitionMode.CROSSFADE,
     val playing: Boolean = true
 ) {
     val current: Uri? get() = images.getOrNull(order.getOrNull(position) ?: 0)
@@ -50,6 +52,7 @@ class SlideshowViewModel(
                     state.copy(
                         speedMs = settings.speedMs,
                         playOrder = settings.playOrder,
+                        transition = settings.transition,
                         order = if (needsShuffle) buildOrder(settings.playOrder) else state.order,
                         position = if (needsShuffle) 0 else state.position
                     )

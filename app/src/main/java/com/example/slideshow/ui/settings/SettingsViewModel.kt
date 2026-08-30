@@ -6,6 +6,7 @@ import com.example.slideshow.data.SettingsRepository
 import com.example.slideshow.model.PlayOrder
 import com.example.slideshow.model.Settings
 import com.example.slideshow.model.ThemeMode
+import com.example.slideshow.model.TransitionMode
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -28,5 +29,9 @@ class SettingsViewModel(
 
     fun setTheme(theme: ThemeMode) {
         viewModelScope.launch { settingsRepository.setTheme(theme) }
+    }
+
+    fun setTransition(transition: TransitionMode) {
+        viewModelScope.launch { settingsRepository.setTransition(transition) }
     }
 }

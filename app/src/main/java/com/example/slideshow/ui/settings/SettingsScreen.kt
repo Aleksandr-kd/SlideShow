@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.slideshow.model.PlayOrder
 import com.example.slideshow.model.ThemeMode
+import com.example.slideshow.model.TransitionMode
 
 private val speedOptions = listOf(
     1000L to "1 сек",
@@ -57,6 +60,7 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(padding)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -78,6 +82,23 @@ fun SettingsScreen(
                 }
                 RadioRow("Перемешивание", settings.playOrder == PlayOrder.SHUFFLE) {
                     viewModel.setPlayOrder(PlayOrder.SHUFFLE)
+                }
+            }
+
+            Section("Переходы") {
+                TransitionMode.entries.forEach { mode ->
+                    RadioRow(
+                        label = when (mode) {
+                            TransitionMode.NONE -> "Без перехода"
+                            TransitionMode.CROSSFADE -> "Плавно (кроссфейд)"
+                            TransitionMode.SLIDE -> "Сдвиг вбок"
+                            TransitionMode.ZOOM -> "Масштаб (зум)"
+                            TransitionMode.FLIP -> "Вертикально (флип)"
+                        },
+                        selected = settings.transition == mode
+                    ) {
+                        viewModel.setTransition(mode)
+                    }
                 }
             }
 
