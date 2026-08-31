@@ -1,7 +1,6 @@
 package com.example.slideshow.ui.selection
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -87,12 +86,8 @@ fun SelectionScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { treeUri ->
         if (treeUri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    treeUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
+            // Persistable-грант и фильтрацию картинок берёт на себя ImageRepository
+            // (addSource → makePersistent), здесь дублировать не нужно.
             viewModel.addImages(listOf(treeUri))
         }
     }
@@ -263,9 +258,9 @@ fun GridImage(uri: Uri, onRemove: () -> Unit) {
             onClick = onRemove,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                .background(Color.Black.copy(alpha = 0.5f))
         ) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_delete))
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.action_delete), tint = Color.White)
         }
     }
 }

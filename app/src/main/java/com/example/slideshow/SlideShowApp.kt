@@ -39,7 +39,10 @@ fun SlideShowApp() {
             SelectionScreen(
                 viewModel = vm,
                 onStartSlideshow = {
+                    // popUpTo(SELECTION) + inclusive очищает стек, чтобы возврат из
+                    // слайд-шоу не накапливал стейты Selection при повторных запусках.
                     navController.navigate(Routes.SLIDESHOW) {
+                        popUpTo(Routes.SELECTION) { inclusive = true }
                         launchSingleTop = true
                     }
                 },

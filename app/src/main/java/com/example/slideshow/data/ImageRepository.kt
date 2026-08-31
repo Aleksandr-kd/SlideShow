@@ -49,14 +49,14 @@ class ImageRepository(private val context: Context) {
         val added = mutableListOf<Uri>()
 
         if (isTreeUri(uri)) {
+            // Продлеваем (persistable) доступ к дереву до перезапуска, иначе после
+            // перезапуска приложения URI детей из флэшки окажутся невалидными.
+            persistTreeGrant(uri)
             val doc = DocumentFile.fromTreeUri(context, uri)
-            val quota = intArrayOf(maxCollectedFiles)
-            collectImages(doc, 0, quota) { child ->
-                quota[0]--
-                if (quota[0] < 0) return@collectImages
+            val collected = collectImages(doc, maxCollectedFiles) { child ->
                 if (existing.add(child.uri)) added.add(child.uri)
             }
-            if (quota[0] <= 0) {
+            if (collected >= maxCollectedFiles) {
                 // Обход упёрся в лимит — сообщаем в лог, чтобы обрезка не была тихой.
                 Log.w(TAG, "Достигнут лимит $maxCollectedFiles файлов при обходе дерева: $uri")
             }
@@ -134,7 +134,7 @@ class ImageRepository(private val context: Context) {
     }
 
     private fun sha256(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
     }
 
@@ -158,16 +158,42 @@ class ImageRepository(private val context: Context) {
         }
     }
 
-    private fun collectImages(doc: DocumentFile?, depth: Int, quota: IntArray, sink: (DocumentFile) -> Unit) {
-        if (doc == null || quota[0] <= 0) return
-        if (depth > maxDepth) return
-        if (doc.isDirectory) {
-            doc.listFiles().forEach { collectImages(it, depth + 1, quota, sink) }
-        } else if (doc.isFile) {
-            val mime = doc.type ?: ""
-            // image/* includes HEIF/HEIC, WebP, AVIF, GIF, BMP, SVG; video is skipped
-            if (mime.startsWith("image/")) sink(doc)
+    // Запрашивает persistable-доступ к дереву. Если грант уже есть или система
+    // его не даёт (например, на некоторых TV), безмолвно пропускаем — дети дерева
+    // всё равно могут быть доступны на время сессии.
+    private fun persistTreeGrant(uri: Uri) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
         }
+    }
+
+    // Итеративный BFS-обход дерева: не рекурсия и не материализация всей
+    // директории разом. Очередь хранит только ещё не пройденные папки (а не файлы),
+    // что резко снижает пик памяти на каталогах с десятками тысяч файлов.
+    private fun collectImages(root: DocumentFile?, maxImages: Int, sink: (DocumentFile) -> Unit): Int {
+        if (root == null) return 0
+        val queue = ArrayDeque<Pair<DocumentFile, Int>>()
+        queue.addLast(root to 0)
+        var collected = 0
+        while (queue.isNotEmpty()) {
+            if (collected >= maxImages) return collected
+            val (doc, depth) = queue.removeFirst()
+            if (doc.isDirectory) {
+                if (depth + 1 > maxDepth) continue
+                runCatching { doc.listFiles() }.getOrNull()
+                    ?.forEach { queue.addLast(it to depth + 1) }
+            } else if (doc.isFile) {
+                val mime = doc.type ?: ""
+                // image/* includes HEIF/HEIC, WebP, AVIF, GIF, BMP, SVG; video is skipped
+                if (mime.startsWith("image/")) {
+                    sink(doc)
+                    collected++
+                }
+            }
+        }
+        return collected
     }
 
     fun getUris(): List<Uri> = loadUris()
@@ -206,7 +232,10 @@ class ImageRepository(private val context: Context) {
 
     private fun deleteInternalCopy(uri: Uri) {
         if (isInternalCopy(uri)) {
-            uri.path?.let { File(it).delete() }
+            val path = uri.path
+            if (path != null && File(path).exists() && !File(path).delete()) {
+                Log.w(TAG, "Не удалось удалить внутреннюю копию: $path")
+            }
         }
     }
 
@@ -217,7 +246,8 @@ class ImageRepository(private val context: Context) {
             buildList {
                 for (i in 0 until arr.length()) {
                     try {
-                        add(Uri.parse(arr.getString(i)))
+                        val parsed = Uri.parse(arr.getString(i))
+                        if (parsed.isValidUri()) add(parsed)
                     } catch (_: Exception) {
                         // Пропускаем битые записи.
                     }
@@ -225,9 +255,15 @@ class ImageRepository(private val context: Context) {
             }
         } catch (_: Exception) {
             // Фолбэк на старый формат (перенос строки) при обновлении приложения.
-            raw.split("\n").filter { it.isNotBlank() }.map { Uri.parse(it) }
+            raw.split("\n").filter { it.isNotBlank() && Uri.parse(it).isValidUri() }.map { Uri.parse(it) }
         }
     }
+
+    // Допустимы только ссылки на файловые провайдеры (content://) либо нашу
+    // внутреннюю копию (file://). Всё прочее (случайные строки после валидации
+    // UI не пройдут) отбрасываем молча.
+    private fun Uri.isValidUri(): Boolean =
+        (scheme == "content" || (scheme == "file" && isInternalCopy(this)))
 
     private fun saveUris(uris: List<Uri>) {
         val json = JSONArray().apply {

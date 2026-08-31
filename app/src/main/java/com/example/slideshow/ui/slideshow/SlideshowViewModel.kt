@@ -44,15 +44,13 @@ class SlideshowViewModel(
     settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    private var images: List<Uri> = imageRepository.getUris()
-
     // Сериализует доступ к playJob, чтобы исключить гонку между коллектором
     // настроек (restartTimer) и прямыми вызовами (next/previous/toggle).
     private val timerMutex = Mutex()
     private var playJob: Job? = null
 
     private val _uiState = MutableStateFlow(
-        SlideshowUiState(images = images, order = buildOrder(PlayOrder.SEQUENTIAL))
+        SlideshowUiState(images = imageRepository.getUris(), order = buildOrder(imageRepository.getUris(), PlayOrder.SEQUENTIAL))
     )
     val uiState: StateFlow<SlideshowUiState> = _uiState.asStateFlow()
 
@@ -61,12 +59,11 @@ class SlideshowViewModel(
         // открыто — подхватываем без пересоздания VM (фикс расимметрии кэша).
         imageRepository.observeUris()
             .onEach { uris ->
-                images = uris
                 _uiState.update { state ->
                     val wasShuffling = state.playOrder == PlayOrder.SHUFFLE
                     // Порядок пересчитываем по НОВОМУ списку (добавление/удаление),
                     // чтобы индексы не «уезжали» в shuffle-перестановке.
-                    val newOrder = if (wasShuffling) buildOrder(state.playOrder) else defaultOrder()
+                    val newOrder = if (wasShuffling) buildOrder(uris, state.playOrder) else defaultOrder(uris)
                     // Сохраняем именно текущую картинку, а не позицию: при удалении
                     // или перетасовке индексы в новом order смещаются, и простой
                     // coerceAtMost перепрыгнул бы на соседнее фото.
@@ -94,26 +91,22 @@ class SlideshowViewModel(
                         speedMs = settings.speedMs,
                         playOrder = settings.playOrder,
                         transition = settings.transition,
-                        order = if (needsShuffle) buildOrder(settings.playOrder) else state.order
+                        order = if (needsShuffle) buildOrder(state.images, settings.playOrder) else state.order
                     )
                 }
                 restartTimer()
             }
         }
-        startTimer()
+        syncTimer()
     }
 
     fun togglePlay() {
         val playing = !_uiState.value.playing
         _uiState.update { it.copy(playing = playing) }
-        if (playing) startTimer() else {
-            viewModelScope.launch {
-                timerMutex.withLock {
-                    playJob?.cancel()
-                    playJob = null
-                }
-            }
-        }
+        // Синхронизируем таймер по ТЕКУЩЕМУ флагу playing атомарно под мутексом:
+        // это исключает окно, когда отмена старого job приходила после запуска
+        // нового при быстром spam-нажатии (слайд-шоу «замирало» при playing=true).
+        syncTimer()
     }
 
     fun next() {
@@ -131,42 +124,29 @@ class SlideshowViewModel(
     }
 
     private fun restartTimer() {
-        viewModelScope.launch {
-            timerMutex.withLock {
-                playJob?.cancel()
-                playJob = null
-                startTimerLocked()
-            }
-        }
+        viewModelScope.launch { timerMutex.withLock { syncTimerLocked() } }
     }
 
     // При паузе/сворачивании приложения останавливаем таймер, чтобы слайд-шоу
     // не «укатывалось» вперёд, пока юзер не видит экран.
     fun onStop() {
-        viewModelScope.launch {
-            timerMutex.withLock {
-                playJob?.cancel()
-                playJob = null
-            }
-        }
+        viewModelScope.launch { timerMutex.withLock { stopTimerLocked() } }
     }
 
     fun onRestart() {
-        if (_uiState.value.playing) startTimer()
+        if (_uiState.value.playing) syncTimer()
     }
 
-    private fun startTimer() {
-        viewModelScope.launch {
-            timerMutex.withLock {
-                startTimerLocked()
-            }
-        }
+    private fun syncTimer() {
+        viewModelScope.launch { timerMutex.withLock { syncTimerLocked() } }
     }
 
-    private fun startTimerLocked() {
+    // Единственная точка приведения таймера в соответствие текущему состоянию.
+    // Вызывается только под timerMutex, поэтому каждая мутация (пауза/старт/сброс)
+    // — атомарна: сначала гасим старый job, затем, если нужно, создаём новый.
+    private fun syncTimerLocked() {
+        stopTimerLocked()
         if (!_uiState.value.playing || _uiState.value.images.isEmpty()) return
-        // Идемпотентность: не создаём второй таймер, если один уже активен.
-        if (playJob?.isActive == true) return
         playJob = viewModelScope.launch {
             // Скорость читаем из актуального состояния каждый тик: settings-коллектор
             // может поменять speedMs между кадрами без пересоздания джоба.
@@ -187,9 +167,14 @@ class SlideshowViewModel(
         }
     }
 
-    private fun defaultOrder(): List<Int> = images.indices.toList()
+    private fun stopTimerLocked() {
+        playJob?.cancel()
+        playJob = null
+    }
 
-    private fun buildOrder(order: PlayOrder): List<Int> {
+    private fun defaultOrder(images: List<Uri>): List<Int> = images.indices.toList()
+
+    private fun buildOrder(images: List<Uri>, order: PlayOrder): List<Int> {
         val base = images.indices.toList()
         return if (order == PlayOrder.SHUFFLE) base.shuffled() else base
     }

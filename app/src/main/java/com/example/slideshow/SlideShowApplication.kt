@@ -10,15 +10,11 @@ import com.example.slideshow.data.SettingsRepository
 
 class SlideShowApplication : Application(), ImageLoaderFactory {
 
-    lateinit var settingsRepository: SettingsRepository
-        private set
-    lateinit var imageRepository: ImageRepository
-        private set
+    val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
+    val imageRepository: ImageRepository by lazy { ImageRepository(this) }
 
     override fun onCreate() {
         super.onCreate()
-        settingsRepository = SettingsRepository(this)
-        imageRepository = ImageRepository(this)
     }
 
     // Анимированные GIF на Android 9+ через ImageDecoder; на более старых —

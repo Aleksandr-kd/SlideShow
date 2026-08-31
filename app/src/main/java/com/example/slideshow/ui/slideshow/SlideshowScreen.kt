@@ -117,10 +117,13 @@ fun SlideshowScreen(
             .background(Color.Black)
             .pointerInput(Unit) {
                 detectTapGestures {
-                    controlsVisible = !controlsVisible
+                    val willShow = !controlsVisible
+                    controlsVisible = willShow
                     controlsInteraction++
-                    // Убираем конфликт с SystemUI: тап по экрану служит только для
-                    // переключения контролов, а системные бары тут же скрываем снова.
+                    // Тап служит только для переключения контролов. При показе — снова
+                    // прячем системные бары, чтобы интерфейс слайд-шоу оставался в
+                    // immersive и SystemUI не «перехватывал» жесты. Гасим их только
+                    // при переключении, а не на каждый тап (redundant-вызов убран).
                     controller?.hide(WindowInsetsCompat.Type.systemBars())
                 }
             }
