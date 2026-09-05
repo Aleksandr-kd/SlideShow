@@ -7,7 +7,7 @@ APK="$PROJ/app/build/outputs/apk/debug/app-debug.apk"
 
 cd "$PROJ"
 echo "==> Сборка..."
-gradle :app:assembleDebug --no-daemon --console=plain
+./gradlew :app:assembleDebug --no-daemon --console=plain
 
 echo "==> Установка на подключённое устройство..."
 adb install -r "$APK"

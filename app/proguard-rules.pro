@@ -1,8 +1,7 @@
 # Add project specific ProGuard rules here.
 
-# Compose
--keep class androidx.compose.** { *; }
--dontwarn androidx.compose.**
+# Compose: правила R8 поставляют сами библиотеки (consumer rules), полный
+# -keep бессмысленен и только мешает shrink/optimize.
 
 # Coil
 -keep class coil.** { *; }

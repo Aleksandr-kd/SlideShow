@@ -149,10 +149,12 @@ fun SlideshowScreen(
                     continue
                 }
                 // Окно готовности: текущий кадр (k = 0) + 10 следующих по кругу.
+                // Кадры, у которых не истёк backoff после череды сбоев (shouldPreload),
+                // пропускаются — битый файл не блокирует дозаливку остального буфера.
                 val missing = (0 until BUFFER_SIZE + 1).firstNotNullOfOrNull { k ->
                     val idx = s.order.getOrNull((s.position + k) % t) ?: return@firstNotNullOfOrNull null
                     val uri = s.images.getOrNull(idx) ?: return@firstNotNullOfOrNull null
-                    uri.takeUnless { viewModel.isUriReady(uri) }
+                    uri.takeUnless { viewModel.isUriReady(uri) || !viewModel.shouldPreload(uri) }
                 }
                 if (missing == null) {
                     delay(300)
@@ -161,7 +163,13 @@ fun SlideshowScreen(
                 val ok = runCatching {
                     imageLoader.execute(imageRequest(missing)).drawable
                 }.getOrNull() != null
-                if (ok) viewModel.onFrameLoaded(missing)
+                if (ok) {
+                    viewModel.onFrameLoaded(missing)
+                } else {
+                    // Сбой загрузки: уводим кадр в backoff, чтобы цикл не долбил
+                    // один и тот же битый/недоступный uri каждые 50 мс вечно.
+                    viewModel.markFrameUnavailable(missing)
+                }
                 // Небольшая пауза между загрузками, чтобы не забивать кэш одной
                 // пачкой и давать UI успевать отрисовывать текущий кадр.
                 delay(50)

@@ -197,11 +197,17 @@ class ImageRepository(private val context: Context) {
     // распознает такой файл как изображение.
     private fun validExtension(displayName: String): String {
         val lastDot = displayName.lastIndexOf('.')
-        if (lastDot <= 0 || lastDot == displayName.length - 1) return "jpg"
+        if (lastDot <= 0 || lastDot == displayName.length - 1) {
+            Log.w(TAG, "Нет понятного расширения в «$displayName», fallback jpg")
+            return "jpg"
+        }
         val ext = displayName.substring(lastDot + 1)
         return if (ext.matches(Regex("[a-zA-Z0-9]{1,5}")) && ext.any { it.isLetter() }) {
             ext.lowercase()
-        } else "jpg"
+        } else {
+            Log.w(TAG, "Невалидное расширение «$ext» в «$displayName», fallback jpg")
+            "jpg"
+        }
     }
 
     private fun sha256(value: String): String {

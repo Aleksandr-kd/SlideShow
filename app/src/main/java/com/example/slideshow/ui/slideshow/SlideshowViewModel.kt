@@ -23,6 +23,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 
 data class SlideshowUiState(
     val images: List<Uri> = emptyList(),
@@ -66,7 +67,18 @@ class SlideshowViewModel(
     // Множество кадров, которые уже успели отрисоваться (Coil loaded). Таймер,
     // встречая кадр, которого в этом наборе нет, перепрыгивает к ближайшему
     // отрисованному кадру вместо того чтобы показывать «чёрный экран».
-    private val readyUris = mutableSetOf<Uri>()
+    // Потокобезопасный (ConcurrentHashMap.newKeySet): onFrameLoaded вызывается
+    // и с main (onSuccess у SubcomposeAsyncImage), и с Dispatchers.IO (prefetch).
+    private val readyUris = ConcurrentHashMap.newKeySet<Uri>()
+
+    // Сколько неудачных попыток предзагрузки подряд уже было для кадра.
+    private val retryAttempts = ConcurrentHashMap<Uri, Int>()
+
+    // До какого момента времени (мс epoch) кадр НЕ трогаем предзагрузкой.
+    // После серии сбоев (битый файл, отвалившаяся флешка) попытки разнесены
+    // с растущим backoff, чтобы prefetch-цикл не долбил один и тот же uri
+    // каждые 50 мс бесконечно и не блокировал дозаливку остального буфера.
+    private val retryCooldownUntil = ConcurrentHashMap<Uri, Long>()
 
     // Стартовый список читаем один раз (два синхронных getUris() на главном
     // потоке в инициализаторе были лишней нагрузкой для 500+ URI).
@@ -154,11 +166,32 @@ class SlideshowViewModel(
     // предзагружен в кэш. Такие кадры таймер показывает, а не пропускает.
     fun onFrameLoaded(uri: Uri) {
         readyUris.add(uri)
+        // Кадр снова доступен — сбрасываем счётчики былых сбоев предзагрузки.
+        retryAttempts.remove(uri)
+        retryCooldownUntil.remove(uri)
     }
 
     // Проверка готовности кадра для фонового слота предзагрузки
     // (загружено и помечено готовым — можно не загружать повторно).
     fun isUriReady(uri: Uri): Boolean = uri in readyUris
+
+    // Кадр можно пробовать предзагрузить, если он ещё не готов и у него не
+    // истёк период «не трогать» после серии неудачных попыток.
+    fun shouldPreload(uri: Uri): Boolean {
+        if (uri in readyUris) return false
+        val until = retryCooldownUntil[uri] ?: return true
+        return System.currentTimeMillis() >= until
+    }
+
+    // Очередная неудача предзагрузки кадра: откладываем следующую попытку
+    // с растущим backoff (10с, 20с, … максимум 60с), чтобы битый либо временно
+    // недоступный uri не зацикливал prefetch (execute→null каждые 50 мс) и не
+    // блокировал предзагрузку следующих кадров буфера.
+    fun markFrameUnavailable(uri: Uri) {
+        val n = (retryAttempts[uri] ?: 0) + 1
+        retryAttempts[uri] = n
+        retryCooldownUntil[uri] = System.currentTimeMillis() + (n * 10_000L).coerceAtMost(60_000L)
+    }
 
     fun next() {
         _uiState.update { state ->
