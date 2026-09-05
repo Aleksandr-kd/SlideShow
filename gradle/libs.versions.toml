@@ -12,6 +12,7 @@ datastorePreferences = "1.1.1"
 documentFile = "1.0.1"
 lifecycleViewmodelCompose = "2.8.7"
 lifecycleRuntimeCompose = "2.8.7"
+rustoreAppUpdate = "6.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 coil-gif = { group = "io.coil-kt", name = "coil-gif", version.ref = "coilGif" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentFile" }
+rustore-appupdate = { group = "ru.rustore.sdk", name = "appupdate", version.ref = "rustoreAppUpdate" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

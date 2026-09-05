@@ -2,6 +2,7 @@ package com.example.slideshow.ui.slideshow
 
 import android.app.Activity
 import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -45,9 +45,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
@@ -58,8 +62,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.SubcomposeAsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.example.slideshow.R
 import com.example.slideshow.model.TransitionMode
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
@@ -79,11 +86,74 @@ fun SlideshowScreen(
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             controller?.show(WindowInsetsCompat.Type.systemBars())
+            // Фиксируем снимок сессии, когда экран закрывают (назад / выход),
+            // чтобы при следующем запуске можно было предложить «Продолжить».
+            viewModel.persistSession()
         }
     }
 
+    BackHandler { onBack() }
+
     val state by viewModel.uiState.collectAsState()
     val current = state.current
+
+    // Размер кадра слайд-шоу (C1): декодируем до разрешения экрана, а не до
+    // полного оригинала (обычно 12–50 МП, которые экран всё равно не покажет).
+    // Это ускоряет загрузку каждого кадра в разы.
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val (screenW, screenH) = remember(configuration, density) {
+        val size = with(density) {
+            Size(configuration.screenWidthDp.dp.toPx(), configuration.screenHeightDp.dp.toPx())
+        }
+        size.width.roundToInt().coerceAtLeast(1) to
+            size.height.roundToInt().coerceAtLeast(1)
+    }
+    val imageLoader = context.imageLoader
+
+    // Постоянный слот предзагрузки: сначала ждём готовности текущего кадра, затем
+    // следующие 10 кадров читаются с диска и помечаются «готовыми» через
+    // onFrameLoaded. Таймер, встречая НЕготовый кадр, перепрыгивает к ближайшему
+    // готовому (вместо «чёрного экрана»):
+    //   картинка → тело кадра ещё читается → следующий готовый кадр.
+    // ВАЖНО: в «готовые» попадают ТОЛЬКО кадры, чей execute вернул drawable.
+    // Битый/недоступный файл не помечается — иначе SubcomposeAsyncImage показал
+    // бы чёрный error-слот как «кадр» слайд-шоу.
+    val total = state.total
+    val order = state.order
+    val position = state.position
+    LaunchedEffect(state.images, order, position, screenW, screenH) {
+        if (total <= 0) return@LaunchedEffect
+        if (current != null) {
+            // Дожидаемся готовности текущего кадра и помечаем его только при успехе.
+            val result = runCatching {
+                imageLoader.execute(
+                    ImageRequest.Builder(context)
+                        .data(current)
+                        .size(screenW, screenH)
+                        .build()
+                )
+            }.getOrNull()
+            if (result?.drawable != null) viewModel.onFrameLoaded(current)
+        }
+        // Ближайшие 10 кадров вперёд: прогружаем в кэш и помечаем готовыми, чтобы
+        // таймер находил их при перескоке и не застревал на «чёрном экране».
+        val startIdx = position + 1
+        for (k in 0 until 10) {
+            val idx = order.getOrNull((startIdx + k) % total) ?: break
+            val uri = state.images.getOrNull(idx) ?: break
+            val result = runCatching {
+                imageLoader.execute(
+                    ImageRequest.Builder(context)
+                        .data(uri)
+                        .size(screenW, screenH)
+                        .build()
+                )
+            }.getOrNull()
+            if (result?.drawable != null) viewModel.onFrameLoaded(uri)
+        }
+    }
 
     var controlsVisible by remember { mutableStateOf(true) }
     // Инкрементируется при каждом взаимодействии, чтобы перезапускать таймер скрытия контролов.
@@ -97,7 +167,6 @@ fun SlideshowScreen(
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onStop() }
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onRestart() }
 
     if (current == null) {
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
@@ -156,7 +225,10 @@ fun SlideshowScreen(
             label = "slideshow_transition"
         ) { uri ->
             SubcomposeAsyncImage(
-                model = uri,
+                model = ImageRequest.Builder(context)
+                    .data(uri)
+                    .size(screenW, screenH)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
@@ -165,15 +237,10 @@ fun SlideshowScreen(
                         Text("…", color = Color.White)
                     }
                 },
+                // Ошибка загрузки: тихий чёрный фон без «битой» иконки — кадр
+                // просто редко проскакивает, не раздражая пользователя.
                 error = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.BrokenImage,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.padding(32.dp)
-                        )
-                    }
+                    Box(Modifier.fillMaxSize())
                 }
             )
         }
@@ -189,7 +256,7 @@ fun SlideshowScreen(
                 Text(
                     text = stringResource(
                         R.string.slideshow_counter,
-                        state.position + 1,
+                        (state.order.getOrNull(state.position) ?: state.position) + 1,
                         state.total
                     ),
                     color = Color.White,

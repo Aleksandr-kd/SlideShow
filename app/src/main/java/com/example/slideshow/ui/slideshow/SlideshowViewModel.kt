@@ -7,7 +7,11 @@ import com.example.slideshow.data.ImageRepository
 import com.example.slideshow.data.SettingsRepository
 import com.example.slideshow.model.PlayOrder
 import com.example.slideshow.model.TransitionMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +34,12 @@ data class SlideshowUiState(
     val playing: Boolean = true
 ) {
     val current: Uri? get() = images.getOrNull(order.getOrNull(position) ?: 0)
+    val next: Uri?
+        get() {
+            if (total <= 0) return null
+            val index = order.getOrNull((position + 1) % total) ?: return null
+            return images.getOrNull(index)
+        }
     val total: Int get() = images.size
 }
 
@@ -41,7 +51,7 @@ private fun advanceTotal(total: Int, position: Int, delta: Int): Int {
 
 class SlideshowViewModel(
     private val imageRepository: ImageRepository,
-    settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     // Сериализует доступ к playJob, чтобы исключить гонку между коллектором
@@ -49,8 +59,24 @@ class SlideshowViewModel(
     private val timerMutex = Mutex()
     private var playJob: Job? = null
 
+    // Собственный scope для записи снимка сессии: срабатывает в onCleared,
+    // когда viewModelScope уже сворачивается, и в onStop/onDispose.
+    private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Множество кадров, которые уже успели отрисоваться (Coil loaded). Таймер,
+    // встречая кадр, которого в этом наборе нет, перепрыгивает к ближайшему
+    // отрисованному кадру вместо того чтобы показывать «чёрный экран».
+    private val readyUris = mutableSetOf<Uri>()
+
+    // Стартовый список читаем один раз (два синхронных getUris() на главном
+    // потоке в инициализаторе были лишней нагрузкой для 500+ URI).
+    private val initialUris = imageRepository.getUris()
+
     private val _uiState = MutableStateFlow(
-        SlideshowUiState(images = imageRepository.getUris(), order = buildOrder(imageRepository.getUris(), PlayOrder.SEQUENTIAL))
+        SlideshowUiState(
+            images = initialUris,
+            order = buildOrder(initialUris, PlayOrder.SEQUENTIAL)
+        )
     )
     val uiState: StateFlow<SlideshowUiState> = _uiState.asStateFlow()
 
@@ -60,6 +86,10 @@ class SlideshowViewModel(
         imageRepository.observeUris()
             .onEach { uris ->
                 _uiState.update { state ->
+                    // Список не менялся (типично для replay-эмиссии при входе на экран) —
+                    // порядок и позицию не пересоздаём, чтобы shuffle не перетасовывался
+                    // повторно прямо на старте слайд-шоу.
+                    if (state.images == uris) return@update state
                     val wasShuffling = state.playOrder == PlayOrder.SHUFFLE
                     // Порядок пересчитываем по НОВОМУ списку (добавление/удаление),
                     // чтобы индексы не «уезжали» в shuffle-перестановке.
@@ -87,11 +117,22 @@ class SlideshowViewModel(
             settingsRepository.settings.collect { settings ->
                 _uiState.update { state ->
                     val needsShuffle = settings.playOrder != state.playOrder
+                    val nextOrder = if (needsShuffle) buildOrder(state.images, settings.playOrder) else state.order
+                    // При смене порядка показа (в т.ч. по гонке с resumeFromLastSession)
+                    // сохраняем текущий кадр: позиция пересчитывается по currentUri
+                    // в НОВОМ порядке, а не остаётся слепым индексом.
+                    val currentUri = state.current
+                    val posInNewOrder = if (needsShuffle) {
+                        currentUri?.let { uri ->
+                            nextOrder.indexOfFirst { state.images.getOrNull(it) == uri }
+                        }
+                    } else null
                     state.copy(
                         speedMs = settings.speedMs,
                         playOrder = settings.playOrder,
                         transition = settings.transition,
-                        order = if (needsShuffle) buildOrder(state.images, settings.playOrder) else state.order
+                        order = nextOrder,
+                        position = posInNewOrder?.takeIf { it >= 0 } ?: state.position
                     )
                 }
                 restartTimer()
@@ -109,16 +150,33 @@ class SlideshowViewModel(
         syncTimer()
     }
 
+    // Вызывается из UI, когда кадр успешно отрисовался (Coil loaded) или был
+    // предзагружен в кэш. Такие кадры таймер показывает, а не пропускает.
+    fun onFrameLoaded(uri: Uri) {
+        readyUris.add(uri)
+    }
+
     fun next() {
         _uiState.update { state ->
-            state.copy(position = advanceTotal(state.total, state.position, +1))
+            if (state.total <= 0) return@update state
+            // Ручной переход вперёд: сразу встаём на ближайший ОТРИСОВАННЫЙ кадр,
+            // чтобы таймер не успел увести позицию обратно (гонка с prerender).
+            val target = advanceTotal(state.total, state.position, +1)
+            val jump = nextReadyPosition(state.images, state.order, target, state.total)
+            state.copy(position = jump ?: state.position)
         }
         restartTimer()
     }
 
     fun previous() {
         _uiState.update { state ->
-            state.copy(position = advanceTotal(state.total, state.position, -1))
+            if (state.total <= 0) return@update state
+            // Ручной переход назад: симметрично next — перескакиваем неготовые кадры
+            // НАЗАД к ближайшему отрисованному. Раньше прыжок искался только вперёд,
+            // из-за чего «prev» на неготовый кадр откатывался обратно и казался мёртвым.
+            val target = advanceTotal(state.total, state.position, -1)
+            val jump = previousReadyPosition(state.images, state.order, target, state.total)
+            state.copy(position = jump ?: state.position)
         }
         restartTimer()
     }
@@ -127,14 +185,74 @@ class SlideshowViewModel(
         viewModelScope.launch { timerMutex.withLock { syncTimerLocked() } }
     }
 
-    // При паузе/сворачивании приложения останавливаем таймер, чтобы слайд-шоу
-    // не «укатывалось» вперёд, пока юзер не видит экран.
+    // При сворачивании приложения таймер НЕ останавливаем: фоновое листание
+    // продолжает предзагружать и отрисовывать фото, а юзер тем временем может
+    // пользоваться другими программами. Фиксируем снимок сессии, чтобы диалог
+    // «Продолжить/Заново» по-прежнему работал (позиция на момент сворачивания).
     fun onStop() {
-        viewModelScope.launch { timerMutex.withLock { stopTimerLocked() } }
+        persistSession()
     }
 
-    fun onRestart() {
-        if (_uiState.value.playing) syncTimer()
+    // «Продолжить с того места»: восстанавливает позицию из сохранённой сессии.
+    // Вызывается один раз при входе на экран слайд-шоу, когда юзер выбрал
+    // в диалоге «Продолжить». Если сессии нет (удалена, набор фото поменялся) —
+    // просто стартуем с начала.
+    fun resumeFromLastSession() {
+        viewModelScope.launch {
+            val session = settingsRepository.loadSlideshowState() ?: return@launch
+            _uiState.update { state ->
+                if (state.images.isEmpty()) return@update state
+                val pos = positionOfFrame(
+                    images = state.images,
+                    order = state.order,
+                    targetUri = session.currentUri,
+                    fallback = session.position
+                )
+                state.copy(position = pos)
+            }
+            restartTimer()
+        }
+    }
+
+    // Ищет позицию конкретного кадра В ПОРЯДКЕ ПОКАЗА (order), а не по индексу
+    // в списке images: при SHUFFLE порядок не совпадает со списком, и простое
+    // indexOfFirst вернуло бы «середину, но не тот кадр». Если кадр не найден
+    // или URI пуст — откатываемся к сохранённой позиции.
+    private fun positionOfFrame(
+        images: List<Uri>,
+        order: List<Int>,
+        targetUri: String?,
+        fallback: Int
+    ): Int {
+        val total = images.size
+        if (total <= 0) return 0
+        if (!targetUri.isNullOrEmpty()) {
+            val found = order.indexOfFirst { pos -> images.getOrNull(pos)?.toString() == targetUri }
+            if (found >= 0) return found
+        }
+        return fallback.coerceIn(0, total - 1)
+    }
+
+    // Фиксирует снимок текущего состояния слайд-шоу в хранилище. Нужно для
+    // диалога «Продолжить/Заново» при повторном запуске. Вызов идемпотентен:
+    // onStop, onDispose экрана и onCleared пишут одно и то же.
+    fun persistSession() {
+        val state = _uiState.value
+        if (state.images.isEmpty()) return
+        persistScope.launch {
+            settingsRepository.saveSlideshowState(
+                uris = state.images.map { it.toString() },
+                position = state.position,
+                currentUri = state.current?.toString(),
+                total = state.total
+            )
+        }
+    }
+
+    override fun onCleared() {
+        persistSession()
+        persistScope.cancel()
+        super.onCleared()
     }
 
     private fun syncTimer() {
@@ -152,19 +270,67 @@ class SlideshowViewModel(
             // может поменять speedMs между кадрами без пересоздания джоба.
             while (isActive) {
                 val speedMs = _uiState.value.speedMs.coerceAtLeast(250)
-                val start = System.currentTimeMillis()
-                delay(speedMs)
-                val elapsed = System.currentTimeMillis() - start
-                if (elapsed > speedMs) {
-                    // Съехали (фоновая задержка/пауза строк) — пропускаем пропущенные
-                    // кадры, чтобы догнать, но не роняем UI в цикл.
-                    val skipped = elapsed / speedMs
-                    _uiState.update { it.copy(position = advanceTotal(it.total, it.position, skipped.toInt())) }
+                val snapshot = _uiState.value
+                val total = snapshot.total
+                if (total <= 0) break
+                val currentUri = snapshot.current
+                val currentReady = currentUri != null && readyUris.contains(currentUri)
+
+                if (currentReady) {
+                    // Текущий кадр отрисован: ждём положенное время и переходим к
+                    // ближайшему следующему ОТРИСОВАННОМУ кадру (нормальный случай —
+                    // это ровно следующий по порядку).
+                    val start = System.currentTimeMillis()
+                    delay(speedMs)
+                    val elapsed = System.currentTimeMillis() - start
+                    val delta = if (elapsed > speedMs) (elapsed / speedMs).toInt() else 1
+                    _uiState.update { state ->
+                        val from = state.position + delta
+                        val next = nextReadyPosition(state.images, state.order, from, state.total)
+                        // Если отрисованных впереди нет — держим текущий кадр на
+                        // экране (не показывая «чёрный экран») и ждём предзагрузки.
+                        state.copy(position = next ?: state.position)
+                    }
                 } else {
-                    _uiState.update { it.copy(position = advanceTotal(it.total, it.position, 1)) }
+                    // Текущий кадр ещё не отрисовался: вместо «чёрного экрана»
+                    // перескакиваем на ближайший отрисованный кадр в порядке показа.
+                    // Если отрисованных пока нет вовсе — ждём предзагрузку и повторяем.
+                    val jump = nextReadyPosition(snapshot.images, snapshot.order, snapshot.position, total)
+                    if (jump != null && jump != snapshot.position) {
+                        _uiState.update { it.copy(position = jump) }
+                        continue
+                    }
+                    delay(minOf(speedMs, 80))
                 }
             }
         }
+    }
+
+    // Позиция ближайшего ОТРИСОВАННОГО кадра в порядке показа, начиная с from
+    // (по кругу). null, если готового кадра среди total вообще нет.
+    private fun nextReadyPosition(images: List<Uri>, order: List<Int>, from: Int, total: Int): Int? {
+        if (total <= 0) return null
+        for (step in 0 until total) {
+            val pos = (from + step) % total
+            val idx = order.getOrNull(pos) ?: continue
+            val uri = images.getOrNull(idx) ?: continue
+            if (readyUris.contains(uri)) return pos
+        }
+        return null
+    }
+
+    // То же, но поиск идёт НАЗАД по кругу (для ручного previous): пользователь,
+    // листая назад, попадает на ближайший отрисованный кадр, не «застревая»
+    // на ещё не прогруженных (иначе кнопка prev выглядит неработающей).
+    private fun previousReadyPosition(images: List<Uri>, order: List<Int>, from: Int, total: Int): Int? {
+        if (total <= 0) return null
+        for (step in 0 until total) {
+            val pos = ((from - step) % total + total) % total
+            val idx = order.getOrNull(pos) ?: continue
+            val uri = images.getOrNull(idx) ?: continue
+            if (readyUris.contains(uri)) return pos
+        }
+        return null
     }
 
     private fun stopTimerLocked() {

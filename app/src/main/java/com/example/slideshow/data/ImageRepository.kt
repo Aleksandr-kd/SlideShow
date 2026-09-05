@@ -34,17 +34,74 @@ class ImageRepository(private val context: Context) {
     // выгрузить всю флешку в память и не зависнуть на гигантских каталогах.
     private val maxCollectedFiles = 5000
 
+    // Размер порции при стриминге обхода дерева: каждые N найденных фото
+    // список публикуется в поток, чтобы UI наполнялся постепенно, а не
+    // «замирал» до конца обхода флешки.
+    private val batchSize = 40
+
     // Поток изменений списка: экраны подписываются, чтобы не держать кэш
     // и всегда видеть актуальный набор картинок (слайдшоу в т.ч.).
-    private val _uris = MutableSharedFlow<List<Uri>>(replay = 1, extraBufferCapacity = 1)
+    // extraBufferCapacity больше 1, чтобы порции при стриминге не терялись.
+    private val _uris = MutableSharedFlow<List<Uri>>(replay = 1, extraBufferCapacity = 64)
     val uris: Flow<List<Uri>> = _uris.asSharedFlow()
+
+    // Однократная очистка «сиротских» tmp-файлов от прерванных копий (процесс
+    // убит между созданием tmp и атомарным renameTo) — иначе они копятся навсегда.
+    init {
+        runCatching {
+            File(context.filesDir, "slideshow").listFiles()?.forEach { f ->
+                if (f.isFile && f.name.endsWith(".tmp")) f.delete()
+            }
+        }
+    }
+
+    // Расширения видео, которые надо исключать в любом случае. Нужны как fallback,
+    // когда провайдер не отдаёт MIME (тип = null или application/octet-stream):
+    // охватывают популярные контейнеры, чтобы видео не просочилось в слайд-шоу.
+    private val videoExtensions = setOf(
+        "mp4", "m4v", "mkv", "mov", "avi", "wmv", "flv", "webm", "3gp", "ts", "m2ts",
+        "mpg", "mpeg", "m4p", "ogv", "vob"
+    )
+
+    // Возвращает true, если на входе видео. Проверяем и MIME, и расширение —
+    // надёжнее, чем только MIME (у части провайдеров тип может быть null).
+    private fun isVideo(fileName: String?, mime: String?): Boolean {
+        if (!mime.isNullOrEmpty() && mime.startsWith("video/")) return true
+        val ext = fileName?.substringAfterLast('.', "")?.lowercase()
+        return ext in videoExtensions
+    }
+
+    // Возвращает true, если запись — изображение. MIME image/* либо, при его
+    // отсутствии, расширение из известного списка (Video в любом случае не
+    // проходит — см. isVideo). Служебные/скрытые файлы (AppleDouble «._*»,
+    // «.DS_Store» и пр.) не считаются изображениями, даже если провайдер
+    // отдаёт image/* по расширению имени.
+    private fun isImage(fileName: String?, mime: String?): Boolean {
+        val name = fileName?.substringAfterLast('/').orEmpty()
+        if (name.startsWith("._") || name.startsWith(".")) return false
+        if (isVideo(fileName, mime)) return false
+        if (!mime.isNullOrEmpty() && mime.startsWith("image/")) return true
+        if (mime.isNullOrEmpty() || mime == "application/octet-stream") {
+            val ext = name.substringAfterLast('.', "").lowercase()
+            if (ext in imageExtensions) return true
+        }
+        return false
+    }
+
+    // Расширения изображений для fallback, когда MIME недоступен.
+    private val imageExtensions = setOf(
+        "jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "avif",
+        "heic", "heif", "jfif", "tif", "tiff"
+    )
 
     // Emits current list to any collector that subscribes later.
     fun observeUris(): Flow<List<Uri>> = uris.flowOn(Dispatchers.IO)
 
     // Adds a file or a tree. If it is a directory (tree URI), walks it recursively
-    // and adds only images (MIME image/*), skipping video.
-    fun addSource(uri: Uri): Int {
+    // and adds only images (MIME image/*), skipping video. The walk streams the
+    // growing list in batches (batchSize), so the UI updates progressively instead
+    // of waiting for the whole tree before showing anything.
+    suspend fun addSource(uri: Uri): Int {
         val existing = getUris().toMutableSet()
         val added = mutableListOf<Uri>()
 
@@ -53,8 +110,18 @@ class ImageRepository(private val context: Context) {
             // перезапуска приложения URI детей из флэшки окажутся невалидными.
             persistTreeGrant(uri)
             val doc = DocumentFile.fromTreeUri(context, uri)
+            var sinceLastSave = 0
             val collected = collectImages(doc, maxCollectedFiles) { child ->
-                if (existing.add(child.uri)) added.add(child.uri)
+                if (existing.add(child.uri)) {
+                    added.add(child.uri)
+                    sinceLastSave++
+                }
+                // Публикуем промежуточные результаты порциями, чтобы главный экран
+                // наполнялся по мере обхода, а не одним куском в самом конце.
+                if (sinceLastSave >= batchSize) {
+                    saveUris(existing.toList())
+                    sinceLastSave = 0
+                }
             }
             if (collected >= maxCollectedFiles) {
                 // Обход упёрся в лимит — сообщаем в лог, чтобы обрезка не была тихой.
@@ -62,7 +129,7 @@ class ImageRepository(private val context: Context) {
             }
         } else {
             val mime = context.contentResolver.getType(uri) ?: ""
-            if (mime.startsWith("image/")) {
+            if (isImage(queryDisplayName(uri), mime)) {
                 val stored = makePersistent(uri)
                 // Дубли: одна и та же картинка дважды не добавляется (URI стабилен).
                 if (existing.add(stored)) added.add(stored)
@@ -126,11 +193,15 @@ class ImageRepository(private val context: Context) {
 
     // Возвращает только «чистое» расширение (латиница/цифры, длина ≤ 5),
     // иначе фолбэк на "jpg". Не даёт "photo.v1" дать расширение "v1".
+    // Расширение из одних цифр ("photo.2023") тоже не валидно — Coil не
+    // распознает такой файл как изображение.
     private fun validExtension(displayName: String): String {
         val lastDot = displayName.lastIndexOf('.')
         if (lastDot <= 0 || lastDot == displayName.length - 1) return "jpg"
         val ext = displayName.substring(lastDot + 1)
-        return if (ext.matches(Regex("[a-zA-Z0-9]{1,5}"))) ext.lowercase() else "jpg"
+        return if (ext.matches(Regex("[a-zA-Z0-9]{1,5}")) && ext.any { it.isLetter() }) {
+            ext.lowercase()
+        } else "jpg"
     }
 
     private fun sha256(value: String): String {
@@ -186,8 +257,9 @@ class ImageRepository(private val context: Context) {
                     ?.forEach { queue.addLast(it to depth + 1) }
             } else if (doc.isFile) {
                 val mime = doc.type ?: ""
-                // image/* includes HEIF/HEIC, WebP, AVIF, GIF, BMP, SVG; video is skipped
-                if (mime.startsWith("image/")) {
+                // image/* includes HEIF/HEIC, WebP, AVIF, GIF, BMP, SVG; video is skipped.
+                // isImage дополнительно отсекает видео по расширению, если MIME пуст.
+                if (isImage(doc.name, mime)) {
                     sink(doc)
                     collected++
                 }
@@ -202,22 +274,46 @@ class ImageRepository(private val context: Context) {
     // after a reinstall). Otherwise the list would keep dead "✕" tiles.
     suspend fun retainReadableUris(): List<Uri> = withContext(Dispatchers.IO) {
         val current = getUris()
+        // Дерево (tree URI) даёт грант на ВСЕХ детей сразу: если доступен корень
+        // дерева, валидны и все его дети. Проверяем по одному представителю на
+        // дерево, а не каждый URI отдельно (для 500+ фото это 1 binder-запрос
+        // вместо 1000+).
+        val treeChecks = HashMap<String, Boolean>()
         val valid = current.filter { uri ->
+            // Служебные файлы (AppleDouble «._*», dotfiles) — не изображения:
+            // они не декодируются, а только «пустят» плитки в сетке.
+            val name = uri.lastPathSegment
+            if (name != null && (name.startsWith("._") || name.startsWith("."))) return@filter false
             if (isInternalCopy(uri)) {
                 // Внутренние копии всегда доступны, если файл существует локально.
                 uri.path?.let { File(it).exists() } == true
+            } else if (isTreeChild(uri)) {
+                val prefix = treeChildPrefix(uri)
+                treeChecks.getOrPut(prefix) { checkIsReadableImage(uri) }
             } else {
-                try {
-                    // Для внешних URI getType быстрее, чем полное открытие потока;
-                    // для просроченного гранта доступа вернёт null или бросит.
-                    !context.contentResolver.getType(uri).isNullOrEmpty()
-                } catch (_: Exception) {
-                    false
-                }
+                checkIsReadableImage(uri)
             }
         }
         if (valid.size != current.size) saveUris(valid)
         valid
+    }
+
+    // Дети дерева имеют вид content://authority/tree/<id>/document/<path>.
+    private fun isTreeChild(uri: Uri): Boolean {
+        val s = uri.toString()
+        return s.contains("/tree/") && s.contains("/document/")
+    }
+
+    // Ключ дерева — всё до первого /document/: children одного дерева обходят
+    // его одинаково, достаточно проверить одного представителя.
+    private fun treeChildPrefix(uri: Uri): String = uri.toString().substringBefore("/document/")
+
+    // Проверяет доступность URI и то, что это изображение (MIME image/* без видео).
+    private fun checkIsReadableImage(uri: Uri): Boolean = try {
+        val mime = context.contentResolver.getType(uri).orEmpty()
+        isImage(queryDisplayName(uri), mime.ifEmpty { null })
+    } catch (_: Exception) {
+        false
     }
 
     fun removeUri(uri: Uri) {

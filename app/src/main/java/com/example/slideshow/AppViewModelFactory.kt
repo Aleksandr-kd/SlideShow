@@ -11,7 +11,7 @@ class AppViewModelFactory(private val app: SlideShowApplication) : ViewModelProv
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
             modelClass.isAssignableFrom(SelectionViewModel::class.java) ->
-                SelectionViewModel(app.imageRepository) as T
+                SelectionViewModel(app.imageRepository, app.settingsRepository) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
                 SettingsViewModel(app.settingsRepository) as T
             modelClass.isAssignableFrom(SlideshowViewModel::class.java) ->

@@ -38,8 +38,8 @@ android {
         applicationId = "com.example.slideshow"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     signingConfigs {
@@ -100,5 +100,6 @@ dependencies {
     implementation(libs.coil.gif)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
+    implementation(libs.rustore.appupdate)
     debugImplementation(libs.androidx.ui.tooling)
 }

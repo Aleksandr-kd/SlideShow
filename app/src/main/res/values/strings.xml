@@ -1,14 +1,19 @@
 <resources>
-    <string name="app_name">Слайд-шоу</string>
+    <string name="app_name">Слайд на Всё</string>
 
     <!-- Selection -->
-    <string name="selection_title">Слайд-шоу</string>
+    <string name="selection_title">Слайд на Всё</string>
     <string name="selection_delete_all">Удалить всё</string>
+    <string name="selection_delete_selected">Удалить выбранные</string>
     <string name="selection_settings">Настройки</string>
     <string name="selection_gallery">Галерея</string>
     <string name="selection_usb">Флэшка</string>
     <string name="selection_empty">Нет выбранных изображений</string>
     <string name="selection_start_slideshow">Запустить слайд-шоу</string>
+    <string name="selection_loading">Загружается… %1$d фото</string>
+    <string name="selection_loading_batch">Загружается…</string>
+    <string name="selection_gallery_hint">В галерее можно выбрать несколько фото</string>
+    <string name="selection_usb_hint">Все изображения из папки добавятся автоматически</string>
     <string name="action_delete">Удалить</string>
 
     <!-- Settings -->
@@ -38,4 +43,10 @@
     <string name="slideshow_previous">Предыдущий</string>
     <string name="slideshow_next">Следующий</string>
     <string name="slideshow_counter">%1$d / %2$d</string>
+
+    <!-- Resume session -->
+    <string name="resume_title">Продолжить слайд-шоу?</string>
+    <string name="resume_message">Начать показ заново или продолжить с того кадра, на котором вы остановились?</string>
+    <string name="resume_continue">Продолжить</string>
+    <string name="resume_restart">Начать заново</string>
 </resources>

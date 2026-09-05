@@ -5,6 +5,8 @@ import android.os.Build
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.ImageDecoderDecoder
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.example.slideshow.data.ImageRepository
 import com.example.slideshow.data.SettingsRepository
 
@@ -26,5 +28,18 @@ class SlideShowApplication : Application(), ImageLoaderFactory {
                     add(ImageDecoderDecoder.Factory())
                 }
             }
+            // Явные кэши: даунскейлнутые превью и кадры слайд-шоу кэшируются,
+            // повторные показы/скроллы не читают и не декодируют флешку заново.
+            .memoryCache(
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            )
+            .diskCache(
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizePercent(0.02)
+                    .build()
+            )
             .build()
 }

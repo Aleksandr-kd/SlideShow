@@ -2,15 +2,19 @@ package com.example.slideshow.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.slideshow.model.PlayOrder
 import com.example.slideshow.model.Settings
+import com.example.slideshow.model.SlideshowSession
 import com.example.slideshow.model.ThemeMode
 import com.example.slideshow.model.TransitionMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -21,6 +25,11 @@ class SettingsRepository(private val context: Context) {
         val PLAY_ORDER = stringPreferencesKey("play_order")
         val THEME = stringPreferencesKey("theme")
         val TRANSITION = stringPreferencesKey("transition")
+
+        val SLIDESHOW_URIS = stringPreferencesKey("slideshow_uris")
+        val SLIDESHOW_POSITION = intPreferencesKey("slideshow_position")
+        val SLIDESHOW_CURRENT_URI = stringPreferencesKey("slideshow_current_uri")
+        val SLIDESHOW_TOTAL = intPreferencesKey("slideshow_total")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { prefs ->
@@ -56,4 +65,39 @@ class SettingsRepository(private val context: Context) {
 
     private fun parseTransition(value: String?): TransitionMode =
         TransitionMode.entries.firstOrNull { it.name == value } ?: TransitionMode.CROSSFADE
+
+    // ---- Сессия слайд-шоу (для «продолжить с того места») ----
+
+    suspend fun saveSlideshowState(uris: List<String>, position: Int, currentUri: String?, total: Int) {
+        context.dataStore.edit {
+            it[Keys.SLIDESHOW_URIS] = JSONArray().apply { uris.forEach { u -> put(u) } }.toString()
+            it[Keys.SLIDESHOW_POSITION] = position
+            it[Keys.SLIDESHOW_CURRENT_URI] = currentUri ?: ""
+            it[Keys.SLIDESHOW_TOTAL] = total
+        }
+    }
+
+    suspend fun loadSlideshowState(): SlideshowSession? {
+        val data = context.dataStore.data.first()
+        val raw = data[Keys.SLIDESHOW_URIS] ?: return null
+        val uris = runCatching {
+            val arr = JSONArray(raw)
+            buildList { for (i in 0 until arr.length()) add(arr.getString(i)) }
+        }.getOrElse { return null }
+        return SlideshowSession(
+            uris = uris,
+            position = data[Keys.SLIDESHOW_POSITION] ?: 0,
+            currentUri = data[Keys.SLIDESHOW_CURRENT_URI]?.takeIf { it.isNotEmpty() },
+            total = data[Keys.SLIDESHOW_TOTAL] ?: uris.size
+        )
+    }
+
+    suspend fun clearSlideshowState() {
+        context.dataStore.edit {
+            it.remove(Keys.SLIDESHOW_URIS)
+            it.remove(Keys.SLIDESHOW_POSITION)
+            it.remove(Keys.SLIDESHOW_CURRENT_URI)
+            it.remove(Keys.SLIDESHOW_TOTAL)
+        }
+    }
 }
