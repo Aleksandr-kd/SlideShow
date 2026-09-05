@@ -156,6 +156,10 @@ class SlideshowViewModel(
         readyUris.add(uri)
     }
 
+    // Проверка готовности кадра для фонового слота предзагрузки
+    // (загружено и помечено готовым — можно не загружать повторно).
+    fun isUriReady(uri: Uri): Boolean = uri in readyUris
+
     fun next() {
         _uiState.update { state ->
             if (state.total <= 0) return@update state

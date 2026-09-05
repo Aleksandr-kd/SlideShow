@@ -1,6 +1,7 @@
 package com.example.slideshow.ui.slideshow
 
 import android.app.Activity
+import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -61,13 +62,21 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.slideshow.R
 import com.example.slideshow.model.TransitionMode
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+
+// Размер буфера предзагрузки слайд-шоу: сколько кадров вперёд (помимо текущего)
+// держим «готовыми» в кэше Coil. 
+private const val BUFFER_SIZE = 10
 
 @Composable
 fun SlideshowScreen(
@@ -97,6 +106,10 @@ fun SlideshowScreen(
     val state by viewModel.uiState.collectAsState()
     val current = state.current
 
+    // Последний успешно отрисованный кадр: используется как placeholder, чтобы
+    // при смене кадра не было чёрной вспышки, пока новый uri читается из кэша.
+    var lastShownUri by remember { mutableStateOf<Uri?>(null) }
+
     // Размер кадра слайд-шоу (C1): декодируем до разрешения экрана, а не до
     // полного оригинала (обычно 12–50 МП, которые экран всё равно не покажет).
     // Это ускоряет загрузку каждого кадра в разы.
@@ -112,46 +125,47 @@ fun SlideshowScreen(
     }
     val imageLoader = context.imageLoader
 
-    // Постоянный слот предзагрузки: сначала ждём готовности текущего кадра, затем
-    // следующие 10 кадров читаются с диска и помечаются «готовыми» через
-    // onFrameLoaded. Таймер, встречая НЕготовый кадр, перепрыгивает к ближайшему
-    // готовому (вместо «чёрного экрана»):
-    //   картинка → тело кадра ещё читается → следующий готовый кадр.
+    // Постоянный слот предзагрузки: фоновый цикл (Dispatchers.IO) держит в кэше
+    // текущий кадр и следующие 10. Работает параллельно таймеру и НЕ блокирует
+    // UI (imageLoader.execute перенесён в IO). Слот не перезапускается на каждом
+    // кадре (position не в ключах) — при смене позиции дозаливаются только
+    // недостающие кадры, наработанный буфер не сбрасывается.
     // ВАЖНО: в «готовые» попадают ТОЛЬКО кадры, чей execute вернул drawable.
     // Битый/недоступный файл не помечается — иначе SubcomposeAsyncImage показал
     // бы чёрный error-слот как «кадр» слайд-шоу.
     val total = state.total
     val order = state.order
-    val position = state.position
-    LaunchedEffect(state.images, order, position, screenW, screenH) {
+    val imageRequest: (Uri) -> ImageRequest = { uri ->
+        ImageRequest.Builder(context).data(uri).size(screenW, screenH).build()
+    }
+    LaunchedEffect(state.images, order, screenW, screenH) {
         if (total <= 0) return@LaunchedEffect
-        if (current != null) {
-            // Дожидаемся готовности текущего кадра и помечаем его только при успехе.
-            val result = runCatching {
-                imageLoader.execute(
-                    ImageRequest.Builder(context)
-                        .data(current)
-                        .size(screenW, screenH)
-                        .build()
-                )
-            }.getOrNull()
-            if (result?.drawable != null) viewModel.onFrameLoaded(current)
-        }
-        // Ближайшие 10 кадров вперёд: прогружаем в кэш и помечаем готовыми, чтобы
-        // таймер находил их при перескоке и не застревал на «чёрном экране».
-        val startIdx = position + 1
-        for (k in 0 until 10) {
-            val idx = order.getOrNull((startIdx + k) % total) ?: break
-            val uri = state.images.getOrNull(idx) ?: break
-            val result = runCatching {
-                imageLoader.execute(
-                    ImageRequest.Builder(context)
-                        .data(uri)
-                        .size(screenW, screenH)
-                        .build()
-                )
-            }.getOrNull()
-            if (result?.drawable != null) viewModel.onFrameLoaded(uri)
+        withContext(Dispatchers.IO) {
+            while (isActive) {
+                val s = viewModel.uiState.value
+                val t = s.total
+                if (t <= 0) {
+                    delay(300)
+                    continue
+                }
+                // Окно готовности: текущий кадр (k = 0) + 10 следующих по кругу.
+                val missing = (0 until BUFFER_SIZE + 1).firstNotNullOfOrNull { k ->
+                    val idx = s.order.getOrNull((s.position + k) % t) ?: return@firstNotNullOfOrNull null
+                    val uri = s.images.getOrNull(idx) ?: return@firstNotNullOfOrNull null
+                    uri.takeUnless { viewModel.isUriReady(uri) }
+                }
+                if (missing == null) {
+                    delay(300)
+                    continue
+                }
+                val ok = runCatching {
+                    imageLoader.execute(imageRequest(missing)).drawable
+                }.getOrNull() != null
+                if (ok) viewModel.onFrameLoaded(missing)
+                // Небольшая пауза между загрузками, чтобы не забивать кэш одной
+                // пачкой и давать UI успевать отрисовывать текущий кадр.
+                delay(50)
+            }
         }
     }
 
@@ -224,23 +238,39 @@ fun SlideshowScreen(
             modifier = Modifier.fillMaxSize(),
             label = "slideshow_transition"
         ) { uri ->
+            // Последний успешно отрисованный кадр: пока новый uri читается из кэша
+            // (или перечитывается с диска из-за вытеснения LRU), на его месте держим
+            // ПРЕДЫДУЩИЙ кадр — вместо чёрной вспышки виден прежний кадр.
+            val lastShown = lastShownUri.takeIf { it != uri }
             SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(uri)
-                    .size(screenW, screenH)
-                    .build(),
+                model = imageRequest(uri),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
                 loading = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("…", color = Color.White)
+                    if (lastShown != null) {
+                        AsyncImage(
+                            model = imageRequest(lastShown),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 },
                 // Ошибка загрузки: тихий чёрный фон без «битой» иконки — кадр
                 // просто редко проскакивает, не раздражая пользователя.
                 error = {
-                    Box(Modifier.fillMaxSize())
+                    if (lastShown != null) {
+                        AsyncImage(
+                            model = imageRequest(lastShown),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                },
+                onSuccess = {
+                    lastShownUri = uri
                 }
             )
         }
