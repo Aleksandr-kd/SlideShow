@@ -85,3 +85,5 @@
   - [x] 12.8. Выровнены отступы NavHost в SlideShowApp; debug + R8 release (lintVital) собраны
 - [x] 13. (bugfix) Grid-превью «через одну» на больших наборах: в папке теста оказались служебные AppleDouble-файлы «._IMG_*.HEIC» (по одному на каждый файл — их копирует macOS). SAF их показывает, MIME по расширению = image/heic, поэтому старый фильтр «isImage» пропускал их в список, а Coil не может их декодировать (BitmapFactory → null) — половина плиток была пустой навсегда. Исправлено: isImage отсекает служебные/скрытые имена («._*», dotfiles); retainReadableUris вычищает уже добавленный мусор при входе на экран. Диагностика велась подключенным логом onError/onSuccess по плиткам (подтверждено: «._*» → ERR «BitmapFactory null», реальные HEIC декодируются, OK 0–1.5s). Debug + R8 release собраны
 - [x] 14. (bugfix) Радио-кнопки в настройках переключаются по нажатию на текст: весь ряд сделан selectable (Role.RadioButton), текст и кнопка — единая зона клика
+
+- [x] 15. (bugfix) Устранены предупреждения IDE про алиасы version catalog: корневой build.gradle.kts переведён на alias(libs.plugins.*)
