@@ -2,7 +2,7 @@
 # Slideshow - сборка, установка и запуск на планшете/эмуляторе
 set -e
 
-PROJ="/Users/aleks/Rustore/SlideShow"
+PROJ="/Users/aleks/Rustore/SlideShow-main"
 APK="$PROJ/app/build/outputs/apk/debug/app-debug.apk"
 
 cd "$PROJ"
