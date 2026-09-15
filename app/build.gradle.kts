@@ -13,6 +13,11 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+val myTrackerPropertiesFile = rootProject.file("local.properties")
+val myTrackerKey: String = Properties().apply {
+    if (myTrackerPropertiesFile.exists()) myTrackerPropertiesFile.inputStream().use { load(it) }
+}.getProperty("MYTRACKER_SDK_KEY", "") ?: ""
+
 // Значения подписи читаются из keystore.properties, а при его отсутствии — из
 // env-переменных (CI). Это исключает падение на пустой сборке и случайный
 // выпуск неподписанного release.
@@ -40,6 +45,7 @@ android {
         targetSdk = 35
         versionCode = 5
         versionName = "1.4"
+        buildConfigField("String", "MYTRACKER_SDK_KEY", "\"$myTrackerKey\"")
     }
 
     signingConfigs {
@@ -79,6 +85,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -101,5 +108,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
     implementation(libs.rustore.appupdate)
+    implementation(libs.mytracker.sdk)
     debugImplementation(libs.androidx.ui.tooling)
 }

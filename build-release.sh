@@ -2,8 +2,11 @@
 # Slideshow - сборка подписанного release APK (R8 + shrink)
 set -e
 
-PROJ="/Users/aleks/Rustore/SlideShow"
+PROJ="/Users/aleks/Rustore/SlideShow-main"
 APK="$PROJ/app/build/outputs/apk/release/app-release.apk"
+
+# GraalVM JDK ломает jlink в AGP; используем обычный OpenJDK 17 (Homebrew).
+export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}"
 
 cd "$PROJ"
 

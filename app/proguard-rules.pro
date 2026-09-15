@@ -24,3 +24,7 @@
 # RuStore SDK
 -keep class ru.rustore.sdk.** { *; }
 -dontwarn ru.rustore.sdk.**
+
+# MyTracker SDK
+-keep class com.my.tracker.** { *; }
+-dontwarn com.my.tracker.**
