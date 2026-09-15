@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Исключаем внутренние копии картинок из облачного бэкапа: они приватный
+     контент пользователя и могут весить много. Настройки и список URI бэкапим. -->
+<full-backup-content>
+    <exclude domain="file" path="slideshow/" />
+</full-backup-content>

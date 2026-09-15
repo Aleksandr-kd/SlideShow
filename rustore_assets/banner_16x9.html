@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Баннер 16:9 — Слайд на Всё</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1030; }
+  .banner {
+    width: 1920px; height: 1080px;
+    position: relative; overflow: hidden;
+    font-family: 'Segoe UI', Roboto, -apple-system, Arial, sans-serif;
+    background: radial-gradient(1200px 800px at 75% 20%, #3a1f6e 0%, #251243 45%, #170a2e 100%);
+    display: flex; align-items: center; gap: 80px;
+    padding: 0 120px;
+  }
+
+  /* ---------- Левая часть: фото-плитки ---------- */
+  .photos { flex: 1.2; display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+  .photo {
+    border-radius: 24px; height: 390px; position: relative; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .photo:nth-child(1) { grid-column: span 2; height: 300px; }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo .tag {
+    position: absolute; left: 16px; bottom: 16px;
+    background: rgba(10,5,25,.72); color: #fff;
+    padding: 8px 16px; border-radius: 999px;
+    font-size: 22px; font-weight: 600; letter-spacing: .3px;
+    backdrop-filter: blur(6px);
+  }
+
+  /* ---------- Правая часть: иконка + слоган ---------- */
+  .info { flex: 1; color: #fff; }
+  .logo-row { display: flex; align-items: center; gap: 28px; margin-bottom: 36px; }
+  .logo {
+    width: 148px; height: 148px; border-radius: 32px;
+    box-shadow: 0 0 0 4px rgba(255,255,255,.14), 0 24px 60px rgba(0,0,0,.5);
+    overflow: hidden; background: #fff;
+  }
+  .logo img { width: 100%; height: 100%; }
+  .logo-row .name { font-size: 44px; font-weight: 800; letter-spacing: .5px; }
+  .logo-row .sub { font-size: 26px; color: #cfc0f0; margin-top: 6px; }
+
+  .slogan {
+    font-size: 72px; font-weight: 900; line-height: 1.12;
+    background: linear-gradient(90deg, #ffffff 20%, #c8a6ff 80%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-bottom: 40px;
+  }
+  .features {
+    display: flex; flex-direction: column; gap: 18px;
+    font-size: 30px; color: #e6ddf8; font-weight: 500;
+  }
+  .features div { display: flex; align-items: center; gap: 16px; }
+  .features .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #bb86fc; flex: none;
+    box-shadow: 0 0 12px #bb86fc;
+  }
+  .badge {
+    margin-top: 44px; display: inline-flex; align-items: center; gap: 14px;
+    background: #bb86fc; color: #170a2e;
+    padding: 18px 32px; border-radius: 999px;
+    font-size: 30px; font-weight: 800; letter-spacing: .3px;
+  }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <!-- Левая часть: имитация фото (SVG-пейзажи) -->
+    <div class="photos">
+      <div class="photo">
+        <svg viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+          <defs>
+            <linearGradient id="sunset" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#ff9966"/><stop offset=".55" stop-color="#ff5e62"/>
+              <stop offset="1" stop-color="#7b2d8e"/>
+            </linearGradient>
+            <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#ffb35c"/><stop offset=".45" stop-color="#8f3b76"/><stop offset="1" stop-color="#2b1055"/>
+            </linearGradient>
+          </defs>
+          <rect width="1200" height="300" fill="url(#sunset)"/>
+          <circle cx="900" cy="170" r="60" fill="#ffe08a"/>
+          <polygon points="0,180 180,90 320,170 520,70 700,190 880,110 1200,200 1200,300 0,300" fill="#2b1055" opacity=".85"/>
+          <polygon points="0,210 240,140 460,200 720,120 1000,210 1200,160 1200,300 0,300" fill="#1c0a3e" opacity=".9"/>
+        </svg>
+        <div class="tag">Галерея</div>
+      </div>
+      <div class="photo">
+        <svg viewBox="0 0 600 390" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+          <defs>
+            <linearGradient id="mnt" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#4facfe"/><stop offset="1" stop-color="#00f2fe"/>
+            </linearGradient>
+          </defs>
+          <rect width="600" height="390" fill="url(#mnt)"/>
+          <polygon points="0,250 140,90 260,220 380,60 520,240 600,170 600,390 0,390" fill="#2e4a62" opacity=".8"/>
+          <polygon points="0,290 200,190 340,280 480,170 600,270 600,390 0,390" fill="#16324a" opacity=".9"/>
+        </svg>
+        <div class="tag">Флэшка</div>
+      </div>
+      <div class="photo">
+        <svg viewBox="0 0 600 390" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+          <defs>
+            <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#0f0c29"/><stop offset="1" stop-color="#302b63"/>
+            </linearGradient>
+          </defs>
+          <rect width="600" height="390" fill="url(#night)"/>
+          <circle cx="300" cy="90" r="52" fill="#ffd97a"/>
+          <circle cx="120" cy="60" r="8" fill="#fff" opacity=".8"/>
+          <circle cx="460" cy="40" r="6" fill="#fff" opacity=".7"/>
+          <circle cx="520" cy="140" r="10" fill="#fff" opacity=".6"/>
+          <circle cx="80" cy="150" r="5" fill="#fff" opacity=".8"/>
+          <polygon points="0,300 160,180 320,280 440,200 600,290 600,390 0,390" fill="#140f2e"/>
+        </svg>
+        <div class="tag">Ночью</div>
+      </div>
+    </div>
+
+    <!-- Правая часть -->
+    <div class="info">
+      <div class="logo-row">
+        <div class="logo"><img src="ic_launcher_512.png" alt="logo"></div>
+        <div>
+          <div class="name">Слайд на Всё</div>
+          <div class="sub">Слайд-шоу из галереи и с флэшки</div>
+        </div>
+      </div>
+
+      <div class="slogan">Фото — как<br>в кино</div>
+
+      <div class="features">
+        <div><span class="dot"></span> Скорость от 1 до 10 секунд</div>
+        <div><span class="dot"></span> 5 вариантов переходов</div>
+        <div><span class="dot"></span> Работает без интернета</div>
+      </div>
+
+      <div class="badge">▶ Установить бесплатно</div>
+    </div>
+  </div>
+</body>
+</html>
