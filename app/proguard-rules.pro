@@ -25,6 +25,11 @@
 -keep class ru.rustore.sdk.** { *; }
 -dontwarn ru.rustore.sdk.**
 
+# libheif (Aliyun): нативный JNI, не обфусцировать классы/методы
+-keep class com.aliyun.libheif.** { *; }
+-dontwarn com.aliyun.**
+-dontwarn com.aliyun.imm.**
+
 # MyTracker SDK
 -keep class com.my.tracker.** { *; }
 -dontwarn com.my.tracker.**

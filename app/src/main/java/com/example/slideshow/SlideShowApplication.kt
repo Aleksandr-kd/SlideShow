@@ -10,6 +10,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.example.slideshow.data.ImageRepository
 import com.example.slideshow.data.SettingsRepository
+import com.example.slideshow.image.HeicDecoder
 import com.my.tracker.MyTracker
 
 class SlideShowApplication : Application(), ImageLoaderFactory {
@@ -51,6 +52,11 @@ class SlideShowApplication : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
             .components {
+                // Кастомный software-декодер HEIC (libheif) — ставим ПЕРВЫМ,
+                // чтобы статичные HEIC/HEIF не уходили на аппаратный HEVC-кодек
+                // (даёт битый chroma на ряде прошивок). Прочие форматы он не
+                // захватывает и идут стандартным путём.
+                add(HeicDecoder.Factory())
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     add(ImageDecoderDecoder.Factory())
                 }

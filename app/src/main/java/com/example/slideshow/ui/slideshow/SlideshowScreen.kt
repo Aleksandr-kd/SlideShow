@@ -75,8 +75,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 // Размер буфера предзагрузки слайд-шоу: сколько кадров вперёд (помимо текущего)
-// держим «готовыми» в кэше Coil. 
-private const val BUFFER_SIZE = 10
+// держим «готовыми» в кэше Coil. Уменьшено с 10 до 3: software-декодирование HEIC
+// (libheif) дороже аппаратного, кэшировать вперёд столько же не нужно — меньше
+// пиковая нагрузка и риск OOM на слабых устройствах.
+private const val BUFFER_SIZE = 3
 
 @Composable
 fun SlideshowScreen(
@@ -148,7 +150,25 @@ fun SlideshowScreen(
     val total = state.total
     val order = state.order
     val imageRequest: (Uri) -> ImageRequest = { uri ->
-        ImageRequest.Builder(context).data(uri).size(screenW, screenH).build()
+        ImageRequest.Builder(context)
+            .data(uri)
+            .size(screenW, screenH)
+            // Явный и стабильный ключ памяти: без него getMemoryCacheKey() на
+            // собранном запросе возвращает null (Coil вычисляет ключ позже в
+            // конвейере), и проверка isCachedInMemory ниже ложно возвращала false,
+            // снимая флаг готовности у ВСЕХ кадров — слайд-шоу застревало на первом.
+            // Этот ключ используют и показ (SubcomposeAsyncImage), и prefetch,
+            // поэтому сверка с кэшем точная.
+            .memoryCacheKey(uri.toString())
+            .build()
+    }
+    // Реально ли кадр лежит в memory cache Coil. Ключ берём из памяти запроса
+    // (memoryCacheKey вычисляется Coil из data+size), поэтому проверка точная.
+    // Coil-кэш LRU: старые кадры вытесняются, и флаг readyUris без этой сверки
+    // «застревает» — отсюда мелькание кадров спустя минуты прокрутки.
+    val isCachedInMemory: (Uri) -> Boolean = { uri ->
+        val key = imageRequest(uri).memoryCacheKey
+        if (key == null) false else imageLoader.memoryCache?.get(key) != null
     }
     LaunchedEffect(state.images, order, screenW, screenH) {
         if (total <= 0) return@LaunchedEffect
@@ -160,12 +180,25 @@ fun SlideshowScreen(
                     delay(300)
                     continue
                 }
-                // Окно готовности: текущий кадр (k = 0) + 10 следующих по кругу.
+                // Окно готовности: текущий кадр (k = 0) + 3 следующих по кругу.
                 // Кадры, у которых не истёк backoff после череды сбоев (shouldPreload),
                 // пропускаются — битый файл не блокирует дозаливку остального буфера.
+                // «Готовность» сверяется с РЕАЛЬНЫМ наличием в memory cache Coil:
+                // если кадр помечен готовым, но его битмап вытеснен из кэша (LRU),
+                // снимаем флаг — иначе таймер перескакивал такие кадры (мелькание
+                // фото спустя несколько минут, когда кэш наполняется).
                 val missing = (0 until BUFFER_SIZE + 1).firstNotNullOfOrNull { k ->
                     val idx = s.order.getOrNull((s.position + k) % t) ?: return@firstNotNullOfOrNull null
                     val uri = s.images.getOrNull(idx) ?: return@firstNotNullOfOrNull null
+                    // «Готовность» будущих кадров сверяем с РЕАЛЬНЫМ наличием в memory
+                    // cache Coil: если кадр помечен готовым, но его битмап вытеснен
+                    // (LRU), снимаем флаг — иначе таймер перескакивал такие кадры.
+                    // ТЕКУЩИЙ кадр (k == 0) уже на экране и его флаг НЕ трогаем:
+                    // кратковременное отсутствие в кэше (момент перехода) иначе
+                    // снимало бы готовность у показываемого фото → оно «мигало».
+                    if (k > 0 && viewModel.isUriReady(uri) && !isCachedInMemory(uri)) {
+                        viewModel.onFrameEvicted(uri)
+                    }
                     uri.takeUnless { viewModel.isUriReady(uri) || !viewModel.shouldPreload(uri) }
                 }
                 if (missing == null) {

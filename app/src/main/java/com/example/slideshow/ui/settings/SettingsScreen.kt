@@ -153,7 +153,12 @@ fun SettingsScreen(
                     value = sliderIndex,
                     onValueChange = { sliderIndex = it },
                     onValueChangeFinished = {
-                        viewModel.setSpeed(speedOptions[i].first)
+                        // Читаем индекс через getter remembered-состояния, а НЕ через
+                        // захваченную при композиции val i: pointerInput слайдера
+                        // держит устаревшее замыкание, иначе сохранялось бы начальное
+                        // значение (скорость «сбрасывалась» на 3 сек).
+                        val idx = sliderIndex.roundToInt().coerceIn(0, speedOptions.lastIndex)
+                        viewModel.setSpeed(speedOptions[idx].first)
                     },
                     valueCount = speedOptions.size,
                     modifier = Modifier.fillMaxWidth()

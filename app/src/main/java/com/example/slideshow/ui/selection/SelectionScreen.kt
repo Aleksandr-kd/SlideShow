@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -336,7 +337,11 @@ fun SelectionScreen(
             showSelectedSheet = false
         } else {
             ModalBottomSheet(
-                onDismissRequest = { showSelectedSheet = false }
+                onDismissRequest = { showSelectedSheet = false },
+                // На широких экранах (планшет) Material3 по умолчанию ограничивает
+                // sheet 640.dp — окно «Просмотреть выбранное» выходит узкой полосой.
+                // Растягиваем на всю ширину окна.
+                sheetMaxWidth = if (isWide) Dp.Infinity else Dp.Unspecified
             ) {
                 Column(
                     modifier = Modifier

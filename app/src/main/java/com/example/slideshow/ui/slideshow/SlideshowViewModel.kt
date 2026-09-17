@@ -171,6 +171,14 @@ class SlideshowViewModel(
         retryCooldownUntil.remove(uri)
     }
 
+    // Кадр больше не считается «готовым»: вызывается из prefetch-цикла, когда
+    // обнаруживает, что битмап кадра вытеснен из memory cache Coil (LRU). Без
+    // этого readyUris «застревал» на true и таймер перескакивал реально пустые
+    // в памяти кадры (фото «мелькали» через несколько минут прокрутки).
+    fun onFrameEvicted(uri: Uri) {
+        readyUris.remove(uri)
+    }
+
     // Проверка готовности кадра для фонового слота предзагрузки
     // (загружено и помечено готовым — можно не загружать повторно).
     fun isUriReady(uri: Uri): Boolean = uri in readyUris

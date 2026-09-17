@@ -43,8 +43,8 @@ android {
         applicationId = "com.example.slideshow"
         minSdk = 24
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 10
+        versionName = "2.1"
         buildConfigField("String", "MYTRACKER_SDK_KEY", "\"$myTrackerKey\"")
     }
 
@@ -109,5 +109,6 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.rustore.appupdate)
     implementation(libs.mytracker.sdk)
+    implementation(libs.libheif)
     debugImplementation(libs.androidx.ui.tooling)
 }
