@@ -83,6 +83,18 @@ fun SlideshowScreen(
     viewModel: SlideshowViewModel,
     onBack: () -> Unit
 ) {
+    // Защита от повторного «назад» (быстрый двойной тап по кнопке-стрелке, либо
+    // кнопка + BackHandler). Первый popBackStack запускает exit-анимацию перехода;
+    // второй вызов в этот момент мог ломать стек навигации и оставлять белый экран.
+    // Guard живёт вместе с экраном и исчезает, когда тот выходит из композиции.
+    var backHandled by remember { mutableStateOf(false) }
+    val handleBack: () -> Unit = {
+        if (!backHandled) {
+            backHandled = true
+            onBack()
+        }
+    }
+
     val view = LocalView.current
     val activity = view.context as? Activity
     val controller = remember(activity) {
@@ -101,7 +113,7 @@ fun SlideshowScreen(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler { handleBack() }
 
     val state by viewModel.uiState.collectAsState()
     val current = state.current
@@ -194,7 +206,7 @@ fun SlideshowScreen(
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.slideshow_no_images), color = Color.White)
-                IconButton(onClick = onBack) {
+                IconButton(onClick = handleBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.slideshow_back), tint = Color.White)
                 }
             }
@@ -305,7 +317,7 @@ fun SlideshowScreen(
 
                 // Кнопка назад (экран)
                 IconButton(
-                    onClick = onBack,
+                    onClick = handleBack,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
