@@ -50,6 +50,12 @@ private fun advanceTotal(total: Int, position: Int, delta: Int): Int {
     return ((position + delta) % total + total) % total
 }
 
+// Сколько ждать загрузки следующего кадра, прежде чем всё равно перейти к нему.
+// Компромисс: раньше таймер перескакивал через «неготовый» кадр к ближайшему
+// готовому, из-за чего фото пролетали. Теперь двигаемся строго по порядку и ждём
+// предзагрузку, но с ограничением, чтобы битый файл не заморозил слайд-шоу.
+private const val WAIT_NEXT_FRAME_TIMEOUT_MS = 1500L
+
 class SlideshowViewModel(
     private val imageRepository: ImageRepository,
     private val settingsRepository: SettingsRepository
@@ -318,34 +324,28 @@ class SlideshowViewModel(
                 val snapshot = _uiState.value
                 val total = snapshot.total
                 if (total <= 0) break
-                val currentUri = snapshot.current
-                val currentReady = currentUri != null && readyUris.contains(currentUri)
 
-                if (currentReady) {
-                    // Текущий кадр отрисован: ждём положенное время и переходим к
-                    // ближайшему следующему ОТРИСОВАННОМУ кадру (нормальный случай —
-                    // это ровно следующий по порядку).
-                    val start = System.currentTimeMillis()
-                    delay(speedMs)
-                    val elapsed = System.currentTimeMillis() - start
-                    val delta = if (elapsed > speedMs) (elapsed / speedMs).toInt() else 1
-                    _uiState.update { state ->
-                        val from = state.position + delta
-                        val next = nextReadyPosition(state.images, state.order, from, state.total)
-                        // Если отрисованных впереди нет — держим текущий кадр на
-                        // экране (не показывая «чёрный экран») и ждём предзагрузки.
-                        state.copy(position = next ?: state.position)
+                // Ждём положенное время остановки на текущем кадре.
+                delay(speedMs)
+
+                val nextPos = (snapshot.position + 1) % total
+                val nextIdx = snapshot.order.getOrNull(nextPos)
+                val nextUri = if (nextIdx == null) null else snapshot.images.getOrNull(nextIdx)
+                // Строго последовательный переход: НЕ перескакиваем через неготовый
+                // следующий кадр к «ближайшему готовому» (это давало «перескок» фото —
+                // кадр пролетал, когда его флаг на миг снимали вытеснением из кэша).
+                // Вместо этого ждём загрузку следующего кадра (placeholder держит
+                // текущий кадр), но не вечно — битый кадр застревать не должен.
+                if (nextUri != null) {
+                    val deadline = System.currentTimeMillis() + WAIT_NEXT_FRAME_TIMEOUT_MS
+                    while (System.currentTimeMillis() < deadline && !readyUris.contains(nextUri)) {
+                        delay(minOf(speedMs, 80))
                     }
-                } else {
-                    // Текущий кадр ещё не отрисовался: вместо «чёрного экрана»
-                    // перескакиваем на ближайший отрисованный кадр в порядке показа.
-                    // Если отрисованных пока нет вовсе — ждём предзагрузку и повторяем.
-                    val jump = nextReadyPosition(snapshot.images, snapshot.order, snapshot.position, total)
-                    if (jump != null && jump != snapshot.position) {
-                        _uiState.update { it.copy(position = jump) }
-                        continue
-                    }
-                    delay(minOf(speedMs, 80))
+                }
+
+                _uiState.update { state ->
+                    if (state.total <= 0) return@update state
+                    state.copy(position = (state.position + 1) % state.total)
                 }
             }
         }
