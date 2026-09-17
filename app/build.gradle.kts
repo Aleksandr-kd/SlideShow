@@ -43,8 +43,8 @@ android {
         applicationId = "com.example.slideshow"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 8
+        versionName = "1.7"
         buildConfigField("String", "MYTRACKER_SDK_KEY", "\"$myTrackerKey\"")
     }
 
